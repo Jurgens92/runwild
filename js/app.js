@@ -2,6 +2,7 @@ import { api, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, formDat
 import { CATEGORIES, DISTANCES, lodgeQuote, nightsBetween, uid, addDays } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
+import { routeExplorer } from './route.js';
 
 const app = $('#app');
 
@@ -148,13 +149,11 @@ async function home(el) {
   <section class="section sand">
     <div class="wrap">
       <div class="section-head center">
-        <span class="eyebrow">Pick your distance</span>
+        <span class="eyebrow">The route</span>
         <h2>Two ways to run wild</h2>
+        <p class="lead">A 21 km trail through the reserve, or a 5 km run/walk at your own pace. Both start and finish at the reserve gate.</p>
       </div>
-      <div class="grid two">
-        <div class="distance d21"><div class="km">21<small>km</small></div><h3>Trail run</h3><p>A half-marathon distance on red-dirt tracks through the reserve.</p></div>
-        <div class="distance d5"><div class="km">5<small>km</small></div><h3>Run / walk</h3><p>Go at your own pace – perfect for first-timers, families and walkers.</p></div>
-      </div>
+      <div class="rt" id="route"></div>
     </div>
   </section>
 
@@ -209,6 +208,7 @@ async function home(el) {
       <div class="btn-row"><a class="btn" href="#/register">Register now</a><a class="btn plain" href="#/info">Read the FAQ</a></div>
     </div>
   </section>`;
+  routeExplorer($('#route'));
 }
 
 async function getInvolved(el) {
