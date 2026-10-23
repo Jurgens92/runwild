@@ -77,7 +77,7 @@ The existing site already has a **Donate** dropdown (General Donations, #BIKES4E
 - A **Run Wild Melorane** link in the Donate dropdown and in the Melorane project links, pointing to `https://runwild.erp.ngo` (or the GitHub Pages link until the subdomain exists).
 - An optional section on *Our Projects*, matching the #BIKES4ERP block: heading, short description, a "Register today" button.
 
-The event site links back to www.erp.ngo in its footer and uses the same navy, Oswald labels and Spartan headings.
+The event site links back to www.erp.ngo in its footer and follows the ERP Brand Guidelines: navy and white first, the secondary blues and browns, uppercase Novecento headings and Gotham body copy (Lexend Exa and Montserrat stand in when the licensed fonts are not installed).
 
 ## Launch checklist
 
