@@ -81,7 +81,7 @@ p { margin: 0 0 1em; }
 .hero .when span { opacity: .55; margin: 0 .5em; }
 .hero .btn-row { justify-content: center; }
 .hero-note { font-size: .86rem; color: #f6e3d8; margin: 16px 0 0; }
-.hero-land { position: relative; height: clamp(160px, 24vw, 300px); background: url('../assets/landscape.jpg') center 30%/cover no-repeat; margin-top: -10px; -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 60px); mask-image: linear-gradient(180deg, transparent 0, #000 60px); }
+.hero-land { position: relative; height: clamp(220px, 32vw, 420px); background: url('../assets/landscape.jpg') center 10%/cover no-repeat; margin-top: -10px; -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 60px); mask-image: linear-gradient(180deg, transparent 0, #000 60px); }
 
 /* Key facts strip */
 .facts { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
