@@ -25,18 +25,21 @@ export async function renderRegister(el) {
   const nights = s.lodge.nights;
   const lodgeDates = [...nights.map((n) => n.date), nights.length ? addDays(nights[nights.length - 1].date, 1) : null].filter(Boolean);
 
-  el.innerHTML = `${pageHead('Entries', 'Register for Run Wild Melorane', '17 April 2027 · Melorane ERP Game Reserve · 21 km trail run or 5 km run/walk')}
-    <section class="section"><div class="wrap narrow">
+  el.innerHTML = `<section class="page-head"><div class="wrap narrow">
+      <span class="eyebrow">Entries</span><h1>Register</h1>
+      <div class="reg-meta"><span>Saturday 17 April 2027</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
+    </div></section>
+    <section class="section tight"><div class="wrap narrow">
       ${token ? '<div class="notice sun"><p><strong>Organiser-assisted registration.</strong> You are signed in as an organiser, so this entry will be recorded as registered on someone’s behalf.</p></div>' : ''}
-      ${s.terms.approved ? '' : '<div class="notice warn"><p><strong>Preview:</strong> the event terms are still a draft awaiting organiser approval.</p></div>'}
       <ol class="steps" id="steps"><li>Category</li><li>Your details</li><li>Options</li><li>Review</li></ol>
-      <form id="reg" novalidate><div id="step"></div>
+      <form id="reg" class="reg-card" novalidate><div id="step"></div>
         <div class="notice bad form-error" hidden></div>
-        <div class="btn-row" style="justify-content:space-between;margin-top:24px">
+        <div class="btn-row" style="justify-content:space-between;margin-top:28px">
           <button type="button" class="btn plain" id="back">Back</button>
           <button type="submit" class="btn" id="next">Continue</button>
         </div>
       </form>
+      <p class="small muted center" style="margin-top:20px">Already registered? <a href="#/my-entry">View your entry</a></p>
     </div></section>`;
 
   const form = $('#reg');
@@ -48,14 +51,14 @@ export async function renderRegister(el) {
     const pool = c.pool ? s.pools[c.pool] : null;
     const feeText = fee.confirmed ? (fee.amount ? rand(fee.amount) + ' ' + esc(fee.label.toLowerCase()) : 'No entry fee') : 'Entry fee to be confirmed';
     const blocked = !fee.confirmed && !s.acceptWhileFeeUnconfirmed;
-    const poolText = pool ? (pool.full ? '<strong>Full – you can join the waitlist (no payment taken)</strong>' : pool.remaining + ' of ' + pool.limit + ' places left' + (c.pool === 'combined' ? ' (shared pool)' : '')) : 'No registration limit';
+    const pill = pool ? (pool.full ? '<span class="places full">Waitlist</span>' : `<span class="places ${pool.remaining <= 5 ? 'low' : ''}">${pool.remaining} left</span>`) : '<span class="places open">No limit</span>';
     return `<label class="choice ${blocked ? 'disabled' : ''}"><input type="radio" name="category" value="${key}" ${d.category === key ? 'checked' : ''} ${blocked ? 'disabled' : ''}>
-      <span><strong>${esc(c.label)}</strong><span class="small">${feeText} · ${poolText}</span>${blocked ? '<br><span class="small">Opens once the fee is confirmed.</span>' : ''}</span></label>`;
+      <span>${pill}<strong>${esc(c.label)}</strong><span class="small muted">${feeText}${pool && pool.full ? ' · join the waitlist, no payment taken' : ''}</span>${blocked ? '<br><span class="small">Opens once the fee is confirmed.</span>' : ''}</span></label>`;
   };
 
   const steps = [
     // 0: category
-    () => `<h2>Which category are you entering?</h2>
+    () => `<h2>Who are you entering as?</h2>
       <fieldset data-field="category"><div class="choices">
         ${['group_employee', 'other', 'community', 'melorane_employee'].map(catCard).join('')}
       </div></fieldset>
@@ -170,6 +173,7 @@ export async function renderRegister(el) {
       const q = d.lodge.wanted ? lodgeQuote({ nights: nightsBetween(d.lodge.arrival, d.lodge.departure), ratePerNight: s.lodge.ratePerNight, depositPercent: s.lodge.depositPercent }) : null;
       const needsCode = c.employee && !d.organiserVerified;
       return `<h2>Check your entry</h2>
+        ${s.terms.approved ? '' : '<div class="notice warn"><p><strong>Preview:</strong> the event terms are still a draft awaiting organiser approval.</p></div>'}
         <table class="summary"><tbody>
           <tr><th>Category</th><td>${esc(c.label)}${c.employee ? (d.inviteCode ? ' · code ' + esc(d.inviteCode) : ' · to be verified by organisers') : ''}</td></tr>
           <tr><th>Name</th><td>${esc(d.fullName)}</td></tr>

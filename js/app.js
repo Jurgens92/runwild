@@ -12,6 +12,7 @@ const routes = {
   'water-points': waterPoints,
   donate,
   'run-buddy': runBuddy,
+  'get-involved': getInvolved,
   info,
   'my-entry': myEntry,
   pay,
@@ -20,11 +21,15 @@ const routes = {
   'about-preview': aboutPreview,
 };
 
+// Pages that live under a main nav item.
+const NAV_SECTION = { 'water-points': 'get-involved', donate: 'get-involved', 'run-buddy': 'get-involved', lodge: 'info', pay: 'my-entry', 'payment-return': 'my-entry' };
+
 async function router() {
   const parts = location.hash.replace(/^#\/?/, '').split('/');
   const name = parts[0] || '';
   const view = routes[name] || notFound;
-  $$('#nav a').forEach((a) => { if (a.getAttribute('href') === '#/' + name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  const section = NAV_SECTION[name] || name;
+  $$('#nav a').forEach((a) => { if (a.getAttribute('href') === '#/' + section) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   $('#nav').classList.remove('open');
   $('#menu-btn').setAttribute('aria-expanded', 'false');
   try {
@@ -46,47 +51,93 @@ router();
 
 function setTitle(t) { app.dataset.title = t; }
 
+const BACK_INVOLVED = { href: '#/get-involved', label: 'Get involved' };
+
 function startLine(ev) {
   return ev.startTime ? esc(ev.startTime) : 'Early start – exact time to be confirmed';
 }
 
 // ---------------- Home ----------------
 
+function placesPill(pool) {
+  if (!pool) return '<span class="places open">Open entry</span>';
+  if (pool.full) return '<span class="places full">Waitlist open</span>';
+  return `<span class="places ${pool.remaining <= 5 ? 'low' : ''}">${pool.remaining} of ${pool.limit} left</span>`;
+}
+
+function feeText(fee) {
+  if (!fee.confirmed) return tbc();
+  return fee.amount ? rand(fee.amount) : 'Free';
+}
+
+const ICONS = {
+  water: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg>',
+  shoe: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 16v-5l4-5 3 3 3 1 6 2a3 3 0 0 1 2 3v1H3z"/><path d="M3 19h18"/></svg>',
+  buddy: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6M14 14.3c.6-.2 1.3-.3 2-.3 3.3 0 6 2.7 6 6"/></svg>',
+};
+
+function involvedTiles(s) {
+  const open = s.waterPoints.filter((w) => w.status === 'available').length;
+  return `<div class="grid three">
+    <a class="tile" href="#/water-points">
+      <span class="icon">${ICONS.water}</span>
+      <h3>Sponsor a water point</h3>
+      <p>Put your name or company on one of five water points along the route.</p>
+      <span class="meta">${open} of 5 still available · ${rand(s.waterPointSettings.price)} suggested</span>
+      <span class="link-arrow">Choose a point</span>
+    </a>
+    <a class="tile" href="#/donate">
+      <span class="icon">${ICONS.shoe}</span>
+      <h3>Donate shoes or kit</h3>
+      <p>Help equip up to ${s.donations.target} community runners with shoes, a vest and shorts.</p>
+      <span class="meta">${s.donations.progress.shoesRequested} runners need shoes · ${s.donations.progress.kitRequested} need kit</span>
+      <span class="link-arrow">Pledge a donation</span>
+    </a>
+    <a class="tile" href="#/run-buddy">
+      <span class="icon">${ICONS.buddy}</span>
+      <h3>Become a Run Buddy</h3>
+      <p>Registered runners can support a community runner on the road to race day.</p>
+      <span class="meta">${s.buddyCounts.volunteers} volunteers so far</span>
+      <span class="link-arrow">How it works</span>
+    </a>
+  </div>`;
+}
+
 async function home(el) {
   setTitle('');
   const s = await api.publicSummary();
-  const c = s.pools.combined;
-  const k = s.pools.community;
+  const ev = s.event;
+  const days = Math.ceil((new Date('2027-04-17T00:00:00+02:00') - Date.now()) / 86400000);
   el.innerHTML = `
   <section class="hero">
     <div class="wrap">
-      <span class="eyebrow" style="color:#ffd9bf">ERP presents</span>
+      <span class="eyebrow">ERP presents</span>
       <h1>Run Wild</h1>
       <p class="place">MELORANE</p>
-      <div class="hero-facts">
-        <div><span class="label">Date</span><strong>17 April 2027</strong></div>
-        <div><span class="label">Where</span><strong>Melorane ERP Game Reserve</strong></div>
-        <div><span class="label">Distances</span><strong>21 km trail run or 5 km run/walk</strong></div>
-        <div><span class="label">Places</span><strong>Limited, by participant category</strong></div>
+      <p class="when">Saturday 17 April 2027<span>·</span>21 km trail run &amp; 5 km run/walk</p>
+      <div class="btn-row">
+        <a class="btn" href="#/register">Register now</a>
+        <a class="btn ghost" href="#/info">Race info</a>
       </div>
-      <div class="hero-actions">
-        <a class="btn" href="#/register">Register</a>
-        <a class="btn ghost" href="#/water-points">Sponsor a water point</a>
-        <a class="btn ghost" href="#/donate">Donate shoes or kit</a>
-      </div>
+      ${days > 0 ? `<p class="hero-note">${days} days to go · limited places</p>` : ''}
     </div>
     <div class="hero-land" role="img" aria-label="Red dirt track through the bushveld at sunrise"></div>
   </section>
 
+  <div class="wrap facts">
+    <div><span class="label">Date</span><strong>17 April 2027</strong></div>
+    <div><span class="label">Start</span><strong>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early morning'}</strong></div>
+    <div><span class="label">Venue</span><strong>Melorane ERP Game Reserve</strong></div>
+    <div><span class="label">Entry</span><strong>From R1,000</strong></div>
+  </div>
+
   <section class="section">
     <div class="wrap split">
       <div>
-        <span class="eyebrow">About the event</span>
-        <h2>A run through the reserve – and the start of a running community</h2>
-        <p>Run Wild Melorane brings people together on the trails of the Melorane ERP Game Reserve. Choose the 21 km trail run or the 5 km run/walk, start early with the bushveld waking up around you, and help us build something that lasts after race day.</p>
-        <p><strong>Proceeds from the R1,000 charitable entries support establishing a local running community.</strong> ${esc(s.event.proceedsText)}</p>
-        <p>Community members from the area run alongside ERP's partners and employees. Many of them need shoes and kit to take part – which is where donors and sponsors come in.</p>
-        <div class="btn-row"><a class="btn navy" href="#/register">Enter now</a><a class="btn plain" href="#/info">Event information</a></div>
+        <span class="eyebrow">The event</span>
+        <h2>Run through the reserve. Build something that lasts.</h2>
+        <p class="lead">Run Wild Melorane brings people together on the trails of Melorane ERP Game Reserve, with the bushveld waking up around you.</p>
+        <p>${esc(ev.proceedsText)}</p>
       </div>
       <figure style="margin:0">
         <img class="poster" src="assets/poster.webp" alt="Run Wild Melorane poster: Save the date, 17 April 2027, 21 km trail run, 5 km run/walk." width="1179" height="1488" loading="lazy">
@@ -96,78 +147,76 @@ async function home(el) {
 
   <section class="section sand">
     <div class="wrap">
-      <span class="eyebrow">Places</span>
-      <h2>Who can enter</h2>
-      <p class="muted narrow">There are four participant categories. Both distances draw from the same pool of places for each category. Sponsorships and donations never use a participant place.</p>
-      <div class="grid three" style="margin-top:20px">
-        <div class="card accent">
-          <h3>Group employees &amp; other participants</h3>
-          <p class="small muted">One shared pool of ${c.limit} places. Charitable entry fee R1,000.</p>
-          <div class="stat">${c.remaining}</div><div class="small">places left of ${c.limit}</div>
-          <div class="meter"><span style="width:${Math.round(((c.limit - c.remaining) / c.limit) * 100)}%"></span></div>
-          ${c.full ? '<p class="small"><strong>Full – waitlist open.</strong></p>' : ''}
-        </div>
-        <div class="card accent">
-          <h3>Community members</h3>
-          <p class="small muted">${k.limit} places, with pickup from ${esc(s.event.pickupPlace)}. Entry fee ${s.fees.community.confirmed ? rand(s.fees.community.amount) : tbc()}</p>
-          <div class="stat">${k.remaining}</div><div class="small">places left of ${k.limit}</div>
-          <div class="meter navy"><span style="width:${Math.round(((k.limit - k.remaining) / k.limit) * 100)}%"></span></div>
-          ${k.full ? '<p class="small"><strong>Full – waitlist open.</strong></p>' : ''}
-        </div>
-        <div class="card accent">
-          <h3>Melorane employees</h3>
-          <p class="small muted">No registration limit. Places for Melorane employees are in addition to the limited pools. Entry fee ${s.fees.melorane_employee.confirmed ? rand(s.fees.melorane_employee.amount) : tbc()}</p>
-          <p class="small">Employee entries are verified with an invitation code or by the organisers.</p>
-        </div>
+      <div class="section-head center">
+        <span class="eyebrow">Pick your distance</span>
+        <h2>Two ways to run wild</h2>
+      </div>
+      <div class="grid two">
+        <div class="distance d21"><div class="km">21<small>km</small></div><h3>Trail run</h3><p>A half-marathon distance on red-dirt tracks through the reserve.</p></div>
+        <div class="distance d5"><div class="km">5<small>km</small></div><h3>Run / walk</h3><p>Go at your own pace – perfect for first-timers, families and walkers.</p></div>
       </div>
     </div>
   </section>
 
   <section class="section">
-    <div class="wrap">
-      <span class="eyebrow">Get involved</span>
-      <h2>More ways to help</h2>
-      <div class="grid three" style="margin-top:20px">
-        <div class="card">
-          <h3>Sponsor a water point</h3>
-          <p>Five water points line the route. Put your name on one for a suggested ${rand(s.waterPointSettings.price)}.</p>
-          <p class="small muted">${s.waterPoints.filter((w) => w.status === 'available').length} of 5 available</p>
-          <a class="btn small navy" href="#/water-points">Choose a water point</a>
-        </div>
-        <div class="card">
-          <h3>Donate shoes or running kit</h3>
-          <p>Help equip up to ${s.donations.target} community runners with a pair of running shoes or a vest and shorts.</p>
-          <p class="small muted">${s.donations.progress.shoesRequested} runners have asked for shoes, ${s.donations.progress.kitRequested} for kit</p>
-          <a class="btn small navy" href="#/donate">Pledge a donation</a>
-        </div>
-        <div class="card">
-          <h3>Become a Run Buddy</h3>
-          <p>Registered runners can support a community participant with a training plan, encouragement and race-day preparation.</p>
-          <a class="btn small navy" href="#/run-buddy">How it works</a>
-        </div>
+    <div class="wrap narrow">
+      <div class="section-head center">
+        <span class="eyebrow">Entries</span>
+        <h2>Who can enter</h2>
+        <p class="lead">Places are limited for each group, and both distances share the same places.</p>
       </div>
+      <div class="entries">
+        <div class="entry-row"><div><h3>Group employees &amp; other participants</h3><p>Charitable entry, supporting the local running community</p></div>${placesPill(s.pools.combined)}<div class="fee">R1,000</div></div>
+        <div class="entry-row"><div><h3>Community members</h3><p>Pickup from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)}</p></div>${placesPill(s.pools.community)}<div class="fee">${feeText(s.fees.community)}</div></div>
+        <div class="entry-row"><div><h3>Melorane employees</h3><p>Additional to the limited places · verified by the organisers</p></div>${placesPill(null)}<div class="fee">${feeText(s.fees.melorane_employee)}</div></div>
+      </div>
+      <div class="btn-row" style="justify-content:center;margin-top:36px"><a class="btn navy" href="#/register">Register now</a></div>
     </div>
   </section>
 
   <section class="section navy">
-    <div class="wrap split">
+    <div class="wrap split top">
       <div>
-        <span class="eyebrow" style="color:var(--peach)">Stay at the reserve</span>
-        <h2>Canvas Lodge</h2>
-        <p>Campfires, starry skies and the bush around you. Group employees and other participants can request a stay at ERP Canvas Lodge – R5,500 per person per night, all inclusive.</p>
-        <a class="btn" href="#/lodge">Lodge details</a>
+        <span class="eyebrow">Race day</span>
+        <h2>Saturday, 17 April 2027</h2>
+        <p>Start and finish at Melorane ERP Game Reserve. Want to wake up at the start line? Stay the night before at Canvas Lodge – campfires, starry skies and the bush all around.</p>
+        <div class="btn-row" style="margin-top:24px"><a class="btn light" href="#/lodge">Stay at Canvas Lodge</a></div>
       </div>
-      <div>
-        <h3>Race day at a glance</h3>
-        <ul class="list-plain" style="color:#e9ecf6">
-          <li><strong>17 April 2027</strong> · ${startLine(s.event)}</li>
-          <li>Start and finish at Melorane ERP Game Reserve</li>
-          <li>Community pickup: ${esc(s.event.pickupPlace)} at ${esc(s.event.pickupTime)}</li>
-          <li>Everyone else arranges their own transport and arrives in good time</li>
-        </ul>
+      <ol class="timeline">
+        <li><span class="t">${esc(ev.pickupTime)}</span><span><strong>Community pickup</strong>${esc(ev.pickupPlace)}</span></li>
+        <li><span class="t">Early</span><span><strong>Arrive at the reserve</strong>Everyone else makes their own way there</span></li>
+        <li><span class="t">${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Sunrise'}</span><span><strong>Race start</strong>${ev.startTime && ev.startTimeConfirmed ? '21 km and 5 km' : 'Exact time to be confirmed'}</span></li>
+        <li><span class="t">Finish</span><span><strong>Celebrate together</strong>Back where it all began</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head center">
+        <span class="eyebrow">Not running?</span>
+        <h2>Get involved</h2>
+        <p class="lead">Many community runners need shoes and kit to take part. That’s where you come in.</p>
       </div>
+      ${involvedTiles(s)}
+    </div>
+  </section>
+
+  <section class="section sand cta-band">
+    <div class="wrap narrow">
+      <h2>See you on the trail.</h2>
+      <p class="lead">Places are limited. Secure yours today.</p>
+      <div class="btn-row"><a class="btn" href="#/register">Register now</a><a class="btn plain" href="#/info">Read the FAQ</a></div>
     </div>
   </section>`;
+}
+
+async function getInvolved(el) {
+  setTitle('Get involved');
+  const s = await api.publicSummary();
+  el.innerHTML = `
+  ${pageHead('Get involved', 'Help more runners reach the start line', 'Sponsor a water point, donate shoes or kit, or support a community runner as a Run Buddy. Sponsorships and donations never use a race place.')}
+  <section class="section"><div class="wrap">${involvedTiles(s)}</div></section>`;
 }
 
 // ---------------- Canvas Lodge ----------------
@@ -181,7 +230,7 @@ async function lodge(el) {
   const opt = (sel) => dates.map((d) => `<option value="${d}" ${d === sel ? 'selected' : ''}>${formatDate(d)}</option>`).join('');
   const q1 = lodgeQuote({ nights: 1, ratePerNight: L.ratePerNight, depositPercent: L.depositPercent });
   el.innerHTML = `
-  ${pageHead('Accommodation', 'Canvas Lodge', 'Stay at Melorane ERP Game Reserve the night before the race. Offered to group employees and other participants.')}
+  ${pageHead('Accommodation', 'Canvas Lodge', 'Stay at Melorane ERP Game Reserve the night before the race. Offered to group employees and other participants.', { href: '#/info', label: 'Race info' })}
   <section class="section">
     <div class="wrap split">
       <div>
@@ -238,7 +287,7 @@ async function waterPoints(el, [preselect]) {
   const resp = { tbc: 'To be confirmed', organiser: 'Organiser', sponsor: 'Sponsor' };
   const requestId = uid();
   el.innerHTML = `
-  ${pageHead('Sponsorship', 'Sponsor a water point', 'Five water points keep runners going on the trail. Sponsor one in your name or your company’s.')}
+  ${pageHead('Sponsorship', 'Sponsor a water point', 'Five water points keep runners going on the trail. Sponsor one in your name or your company’s.', BACK_INVOLVED)}
   <section class="section">
     <div class="wrap">
       <div class="grid five">
@@ -331,7 +380,7 @@ async function donate(el) {
   const fin = D.financialEnabled && (D.shoePrice || D.kitPrice);
   const requestId = uid();
   el.innerHTML = `
-  ${pageHead('Donations', 'Donate shoes or running kit', 'Help equip up to ' + D.target + ' community runners for race day and the training that comes before it.')}
+  ${pageHead('Donations', 'Donate shoes or running kit', 'Help equip up to ' + D.target + ' community runners for race day and the training that comes before it.', BACK_INVOLVED)}
   <section class="section">
     <div class="wrap">
       <div class="grid two">
@@ -450,7 +499,7 @@ async function runBuddy(el) {
   setTitle('Community Run Buddy');
   const s = await api.publicSummary();
   el.innerHTML = `
-  ${pageHead('Community', 'Community Run Buddy programme', 'Pair up with a runner from the Melorane community and help them get to the start line ready.')}
+  ${pageHead('Community', 'Community Run Buddy programme', 'Pair up with a runner from the Melorane community and help them get to the start line ready.', BACK_INVOLVED)}
   <section class="section">
     <div class="wrap split">
       <div>
@@ -482,7 +531,7 @@ async function runBuddy(el) {
 // ---------------- Info / FAQ ----------------
 
 async function info(el) {
-  setTitle('Event information');
+  setTitle('Race info');
   const s = await api.publicSummary();
   const ev = s.event;
   const qa = [
@@ -498,30 +547,38 @@ async function info(el) {
     ['Can I change my distance or cancel?', 'Contact the organisers with your reference number. Cancellation and refund terms are part of the event terms, which are still being finalised.'],
   ];
   el.innerHTML = `
-  ${pageHead('Information', 'Event information & FAQ')}
-  <section class="section"><div class="wrap split">
+  ${pageHead('Race info', 'Everything you need to know', 'Key details, getting there, and answers to common questions.')}
+  <section class="section"><div class="wrap split top">
     <div>
-      ${qa.map(([q, a]) => `<details><summary>${q}</summary><div><p>${a}</p></div></details>`).join('')}
-      <h2 style="margin-top:36px" id="terms">Event terms</h2>
-      ${s.terms.approved ? '' : '<div class="notice warn"><p>These terms are a draft and still need organiser approval before registration opens.</p></div>'}
-      <p>${esc(s.terms.text)}</p>
-      <p class="small muted">Version ${esc(s.terms.version)}</p>
-      <h2 style="margin-top:36px" id="privacy">Privacy notice</h2>
-      <p>ERP collects your name, contact numbers, email address, emergency contact, category, distance and – for community participants – clothing and shoe sizes, to run Run Wild Melorane: to manage entries and payments, transport and safety on the day, kit distribution and the Run Buddy programme.</p>
-      <p>Your details are seen only by authorised organisers. We do not publish names, contact details, sizes or individual needs, and we only share your contact details with a Run Buddy once you have both agreed. Sponsors’ names and logos are shown only with their permission. You can ask to see, correct or delete your information by contacting <a href="mailto:info@erp.ngo">info@erp.ngo</a>, in line with POPIA.</p>
+      <h2>Frequently asked</h2>
+      <div class="faq">${qa.map(([q, a]) => `<details><summary>${q}</summary><div><p>${a}</p></div></details>`).join('')}</div>
+      <h2 style="margin-top:56px">The fine print</h2>
+      <div class="faq">
+        <details id="terms"><summary>Event terms</summary><div>
+          ${s.terms.approved ? '' : '<div class="notice warn"><p>These terms are a draft and still need organiser approval before registration opens.</p></div>'}
+          <p>${esc(s.terms.text)}</p>
+          <p class="small">Version ${esc(s.terms.version)}</p></div></details>
+        <details id="privacy"><summary>Privacy notice</summary><div>
+          <p>ERP collects your name, contact numbers, email address, emergency contact, category, distance and – for community participants – clothing and shoe sizes, to run Run Wild Melorane: to manage entries and payments, transport and safety on the day, kit distribution and the Run Buddy programme.</p>
+          <p>Your details are seen only by authorised organisers. We do not publish names, contact details, sizes or individual needs, and we only share your contact details with a Run Buddy once you have both agreed. Sponsors’ names and logos are shown only with their permission. You can ask to see, correct or delete your information by contacting <a href="mailto:info@erp.ngo">info@erp.ngo</a>, in line with POPIA.</p></div></details>
+      </div>
     </div>
-    <aside>
-      <div class="card">
+    <aside style="display:grid;gap:20px">
+      <div class="card raised">
         <h3>Key details</h3>
         <table class="summary"><tbody>
-          <tr><th>Date</th><td>17 April 2027</td></tr>
-          <tr><th>Start time</th><td>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early start – exact time to be confirmed'}</td></tr>
+          <tr><th>Date</th><td>Saturday 17 April 2027</td></tr>
+          <tr><th>Start</th><td>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early start – time to be confirmed'}</td></tr>
           <tr><th>Venue</th><td>${esc(ev.venue)}</td></tr>
           <tr><th>Distances</th><td>21 km trail · 5 km run/walk</td></tr>
           <tr><th>Community pickup</th><td>${esc(ev.pickupPlace)}, ${esc(ev.pickupTime)}</td></tr>
-          <tr><th>Time zone</th><td>South African time (SAST)</td></tr>
         </tbody></table>
-        <div class="btn-row" style="margin-top:16px"><a class="btn" href="#/register">Register</a></div>
+        <div class="btn-row" style="margin-top:20px"><a class="btn" href="#/register">Register</a></div>
+      </div>
+      <div class="card quiet">
+        <h3>Stay at Canvas Lodge</h3>
+        <p class="muted">Sleep at the reserve the night before and wake up at the start line. R5,500 per person per night, all inclusive.</p>
+        <a class="link-arrow" href="#/lodge">Lodge details</a>
       </div>
     </aside>
   </div></section>`;

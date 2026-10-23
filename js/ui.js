@@ -26,8 +26,8 @@ export function statusPill(status, label) {
   return `<span class="status ${esc(status)}">${esc(text)}</span>`;
 }
 
-export function pageHead(eyebrow, title, intro = '') {
-  return `<section class="page-head"><div class="wrap"><span class="eyebrow">${esc(eyebrow)}</span><h1>${esc(title)}</h1>${intro ? `<p>${intro}</p>` : ''}</div></section>`;
+export function pageHead(eyebrow, title, intro = '', back = null) {
+  return `<section class="page-head"><div class="wrap">${back ? `<a class="back" href="${esc(back.href)}">← ${esc(back.label)}</a><br>` : ''}<span class="eyebrow">${esc(eyebrow)}</span><h1>${esc(title)}</h1>${intro ? `<p>${intro}</p>` : ''}</div></section>`;
 }
 
 // Shows field errors from a ValidationError next to inputs named in err.fields.
