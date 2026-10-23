@@ -7,13 +7,13 @@ const H = 420;
 
 const ROUTES = {
   '21k': {
-    label: '21 km trail run', km: 21.1, colour: '#141f45', terrain: 'Jeep track and single track',
+    label: '21 km trail run', km: 21.1, colour: '#131b41', terrain: 'Jeep track and single track',
     base: 1080, waterPoints: [3.5, 7, 10.5, 14, 17.5],
     shape: { cx: 300, cy: 215, rx: 230, ry: 165, waves: [[3, 0.16, 0.4], [5, 0.07, 1.3], [8, 0.03, 2.1]] },
     hills: [[0.18, 70, 0.07], [0.45, 115, 0.09], [0.7, 55, 0.06], [0.86, 35, 0.04]],
   },
   '5k': {
-    label: '5 km run/walk', km: 5, colour: '#c4553d', terrain: 'Gravel road, gently rolling',
+    label: '5 km run/walk', km: 5, colour: '#74685b', terrain: 'Gravel road, gently rolling',
     base: 1080, waterPoints: [2.5],
     shape: { cx: 205, cy: 280, rx: 105, ry: 75, waves: [[2, 0.12, 0.9], [4, 0.05, 0.2]] },
     hills: [[0.35, 22, 0.12], [0.62, 14, 0.08]],
@@ -95,22 +95,22 @@ function mapSVG(route, other) {
   }
   const wps = route.waterPoints.map((k, i) => {
     const p = at(route, k);
-    return `<g transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})"><title>Water point ${i + 1} · ${k} km</title><path d="M0 -9 C 4 -3 6 0 6 3 A 6 6 0 0 1 -6 3 C -6 0 -4 -3 0 -9Z" fill="#3d7fb8" stroke="#fff" stroke-width="1.5"/></g>`;
+    return `<g transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})"><title>Water point ${i + 1} · ${k} km</title><path d="M0 -9 C 4 -3 6 0 6 3 A 6 6 0 0 1 -6 3 C -6 0 -4 -3 0 -9Z" fill="#0066b2" stroke="#fff" stroke-width="1.5"/></g>`;
   }).join('');
   const start = route.pts[0];
   const scale = route.unitsPerKm;
   return `<svg viewBox="0 0 ${W} ${H}" class="rt-map" role="img" aria-label="Sample outline of the ${route.label} course: a loop starting and finishing at the reserve gate, with ${route.waterPoints.length} water point${route.waterPoints.length > 1 ? 's' : ''}.">
-    <rect width="${W}" height="${H}" rx="14" fill="#f3efe7"/>
-    <g fill="none" stroke="#e3dccf" stroke-width="1">${contours}</g>
-    <path d="M -10 380 C 120 350, 200 400, 330 370 S 520 330, 620 360" fill="none" stroke="#cfdbe6" stroke-width="5" stroke-linecap="round"/>
+    <rect width="${W}" height="${H}" rx="14" fill="#f1eeea"/>
+    <g fill="none" stroke="#e4ddd5" stroke-width="1">${contours}</g>
+    <path d="M -10 380 C 120 350, 200 400, 330 370 S 520 330, 620 360" fill="none" stroke="#bfdcf3" stroke-width="5" stroke-linecap="round"/>
     ${other ? `<path d="${pathOf(other.pts)}" fill="none" stroke="#b9b2a6" stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round"/>` : ''}
     <path d="${pathOf(route.pts)}" fill="none" stroke="#fff" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>
     <path d="${pathOf(route.pts)}" fill="none" stroke="${route.colour}" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${kmMarks.join('')}${wps}
     <g transform="translate(${start[0].toFixed(1)} ${start[1].toFixed(1)})"><circle r="9" fill="${route.colour}" stroke="#fff" stroke-width="3"/><text x="14" y="-12" class="rt-tag">Start / finish</text></g>
     <circle class="rt-dot" r="7" fill="#fff" stroke="${route.colour}" stroke-width="3" cx="${start[0]}" cy="${start[1]}" opacity="0"/>
-    <g transform="translate(${W - 34} 34)" class="rt-north"><path d="M0 -14 L6 6 L0 2 L-6 6Z" fill="#646b7e"/><text text-anchor="middle" y="20">N</text></g>
-    <g transform="translate(24 ${H - 26})"><path d="M0 0 H${scale.toFixed(1)}" stroke="#646b7e" stroke-width="2"/><path d="M0 -4 V4 M${scale.toFixed(1)} -4 V4" stroke="#646b7e" stroke-width="2"/><text x="${(scale / 2).toFixed(1)}" y="-8" text-anchor="middle" class="rt-scale">1 km</text></g>
+    <g transform="translate(${W - 34} 34)" class="rt-north"><path d="M0 -14 L6 6 L0 2 L-6 6Z" fill="#74685b"/><text text-anchor="middle" y="20">N</text></g>
+    <g transform="translate(24 ${H - 26})"><path d="M0 0 H${scale.toFixed(1)}" stroke="#74685b" stroke-width="2"/><path d="M0 -4 V4 M${scale.toFixed(1)} -4 V4" stroke="#74685b" stroke-width="2"/><text x="${(scale / 2).toFixed(1)}" y="-8" text-anchor="middle" class="rt-scale">1 km</text></g>
   </svg>`;
 }
 
@@ -130,14 +130,14 @@ function profileSVG(route, w) {
   const step = route.km > 10 ? 5 : 1;
   const xTicks = [];
   for (let k = 0; k <= route.km; k += step) xTicks.push(`<text x="${x(k)}" y="${h - 10}" text-anchor="middle" class="rt-axis">${k} km</text>`);
-  const wps = route.waterPoints.map((k) => `<line x1="${x(k)}" x2="${x(k)}" y1="${y(at(route, k).elev) + 4}" y2="${y(lo)}" stroke="#3d7fb8" stroke-width="1.5" stroke-dasharray="3 3"/>`).join('');
+  const wps = route.waterPoints.map((k) => `<line x1="${x(k)}" x2="${x(k)}" y1="${y(at(route, k).elev) + 4}" y2="${y(lo)}" stroke="#0066b2" stroke-width="1.5" stroke-dasharray="3 3"/>`).join('');
   return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" class="rt-profile" role="img" aria-label="Elevation profile: ${route.low} m to ${route.high} m, about ${route.gain} m of climbing over ${route.km} km.">
     <defs><linearGradient id="rt-fill-${route.key}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${route.colour}" stop-opacity=".22"/><stop offset="1" stop-color="${route.colour}" stop-opacity=".02"/></linearGradient></defs>
     ${yTicks.join('')}${xTicks.join('')}
     <path d="${area}" fill="url(#rt-fill-${route.key})"/>
     ${wps}
     <path d="${line}" fill="none" stroke="${route.colour}" stroke-width="2" stroke-linejoin="round"/>
-    <line class="rt-cross" y1="${pt}" y2="${y(lo)}" x1="0" x2="0" stroke="#646b7e" stroke-width="1" opacity="0"/>
+    <line class="rt-cross" y1="${pt}" y2="${y(lo)}" x1="0" x2="0" stroke="#74685b" stroke-width="1" opacity="0"/>
     <rect x="${pl}" y="0" width="${w - pl - pr}" height="${h}" fill="transparent" class="rt-hit"/>
   </svg>`;
 }

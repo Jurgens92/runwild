@@ -700,7 +700,7 @@ async function pay(el, [chargeRef]) {
   }
   el.innerHTML = `${pageHead('Payment', 'Pay online')}
   <section class="section"><div class="wrap narrow">
-    <div class="card" style="border:2px dashed #b9a7c9">
+    <div class="card" style="border:2px dashed var(--tan)">
       <span class="sample">Preview payment page</span>
       <p style="margin-top:10px">This stands in for the payment provider’s hosted checkout. No card details are collected and no money moves.</p>
       <table class="summary money"><tbody>
