@@ -285,7 +285,7 @@ export class Backend {
       if (!k.shoeSize) e.shoeSize = 'Enter a shoe size.';
       if (!k.shoeSystem) e.shoeSystem = 'Choose a sizing system.';
       if (!k.shirtSize) e.shirtSize = 'Choose a shirt/vest size.';
-      if (!k.shortsSize) e.shortsSize = 'Choose a pants/shorts size.';
+      if (!k.shortsSize) e.shortsSize = 'Choose a shorts size.';
     }
     if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
   }
