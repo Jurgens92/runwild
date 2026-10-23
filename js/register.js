@@ -1,0 +1,345 @@
+import { api, esc, $, $$, pageHead, showErrors, rand, formatDate, tbc } from './ui.js';
+import { CATEGORIES, DISTANCES, lodgeQuote, nightsBetween, uid, addDays, validEmail, validMobile } from './core.js';
+import { confirmationHTML } from './app.js';
+
+const TRANSPORT_ACK = 'The event will have an early start from Melorane ERP Game Reserve. I am responsible for arranging my transport and arriving on time.';
+const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+
+// Which wizard step owns each field, so server-side errors send the user back to the right place.
+const FIELD_STEP = {
+  category: 0, inviteCode: 0,
+  fullName: 1, mobile: 1, email: 1, emergencyName: 1, emergencyMobile: 1, distance: 1, employer: 1,
+  lodge: 2, lodgeDates: 2, transportAck: 2, buddyExperience: 2, buddyAvailability: 2, pickupAck: 2, shoeSize: 2, shoeSystem: 2, shirtSize: 2, shortsSize: 2,
+  termsAccepted: 3, privacyAck: 3,
+};
+
+export async function renderRegister(el) {
+  el.dataset.title = 'Register';
+  const s = await api.publicSummary();
+  const token = sessionStorage.getItem('rw-org-token');
+  const st = {
+    step: 0,
+    clientRequestId: uid(),
+    d: { category: '', distance: '', lodge: { wanted: null, arrival: '', departure: '' }, buddy: { optIn: false }, kit: { shoeSystem: 'UK', needsShoes: false, needsKit: false }, communityBuddy: false },
+  };
+  const nights = s.lodge.nights;
+  const lodgeDates = [...nights.map((n) => n.date), nights.length ? addDays(nights[nights.length - 1].date, 1) : null].filter(Boolean);
+
+  el.innerHTML = `${pageHead('Entries', 'Register for Run Wild Melorane', '17 April 2027 · Melorane ERP Game Reserve · 21 km trail run or 5 km run/walk')}
+    <section class="section"><div class="wrap narrow">
+      ${token ? '<div class="notice sun"><p><strong>Organiser-assisted registration.</strong> You are signed in as an organiser, so this entry will be recorded as registered on someone’s behalf.</p></div>' : ''}
+      ${s.terms.approved ? '' : '<div class="notice warn"><p><strong>Preview:</strong> the event terms are still a draft awaiting organiser approval.</p></div>'}
+      <ol class="steps" id="steps"><li>Category</li><li>Your details</li><li>Options</li><li>Review</li></ol>
+      <form id="reg" novalidate><div id="step"></div>
+        <div class="notice bad form-error" hidden></div>
+        <div class="btn-row" style="justify-content:space-between;margin-top:24px">
+          <button type="button" class="btn plain" id="back">Back</button>
+          <button type="submit" class="btn" id="next">Continue</button>
+        </div>
+      </form>
+    </div></section>`;
+
+  const form = $('#reg');
+  const d = st.d;
+
+  const catCard = (key) => {
+    const c = CATEGORIES[key];
+    const fee = s.fees[key];
+    const pool = c.pool ? s.pools[c.pool] : null;
+    const feeText = fee.confirmed ? (fee.amount ? rand(fee.amount) + ' ' + esc(fee.label.toLowerCase()) : 'No entry fee') : 'Entry fee to be confirmed';
+    const blocked = !fee.confirmed && !s.acceptWhileFeeUnconfirmed;
+    const poolText = pool ? (pool.full ? '<strong>Full – you can join the waitlist (no payment taken)</strong>' : pool.remaining + ' of ' + pool.limit + ' places left' + (c.pool === 'combined' ? ' (shared pool)' : '')) : 'No registration limit';
+    return `<label class="choice ${blocked ? 'disabled' : ''}"><input type="radio" name="category" value="${key}" ${d.category === key ? 'checked' : ''} ${blocked ? 'disabled' : ''}>
+      <span><strong>${esc(c.label)}</strong><span class="small">${feeText} · ${poolText}</span>${blocked ? '<br><span class="small">Opens once the fee is confirmed.</span>' : ''}</span></label>`;
+  };
+
+  const steps = [
+    // 0: category
+    () => `<h2>Which category are you entering?</h2>
+      <fieldset data-field="category"><div class="choices">
+        ${['group_employee', 'other', 'community', 'melorane_employee'].map(catCard).join('')}
+      </div></fieldset>
+      <div id="code-box" ${CATEGORIES[d.category]?.employee ? '' : 'hidden'}>
+        <div class="field" data-field="inviteCode"><label for="inviteCode">Employee invitation code <span class="hint">Your code from the organisers confirms you are an employee. No code? Continue – the organisers will verify you before a place is allocated.</span></label>
+          <input id="inviteCode" name="inviteCode" type="text" value="${esc(d.inviteCode || '')}" autocapitalize="characters"></div>
+        ${token ? `<label class="check"><input type="checkbox" name="organiserVerified" ${d.organiserVerified ? 'checked' : ''}> I have verified this person’s employment (organiser)</label>` : ''}
+      </div>`,
+    // 1: details
+    () => {
+      const c = CATEGORIES[d.category];
+      return `<h2>Your details</h2>
+      <div class="field" data-field="fullName"><label for="fullName">Full name</label><input id="fullName" name="fullName" type="text" autocomplete="name" value="${esc(d.fullName || '')}"></div>
+      <div class="row2">
+        <div class="field" data-field="mobile"><label for="mobile">Mobile number</label><input id="mobile" name="mobile" type="tel" autocomplete="tel" value="${esc(d.mobile || '')}" placeholder="082 123 4567"></div>
+        <div class="field" data-field="email"><label for="email">Email ${c.emailRequired ? '' : '<span class="hint">Optional</span>'}</label><input id="email" name="email" type="email" autocomplete="email" value="${esc(d.email || '')}"></div>
+      </div>
+      ${c.employee ? `<div class="field" data-field="employer"><label for="employer">Company or employer</label><input id="employer" name="employer" type="text" value="${esc(d.employer || (d.category === 'melorane_employee' ? 'Melorane' : ''))}"></div>` : ''}
+      <div class="row2">
+        <div class="field" data-field="emergencyName"><label for="emergencyName">Emergency contact name</label><input id="emergencyName" name="emergencyName" type="text" value="${esc(d.emergencyName || '')}"></div>
+        <div class="field" data-field="emergencyMobile"><label for="emergencyMobile">Emergency contact number</label><input id="emergencyMobile" name="emergencyMobile" type="tel" value="${esc(d.emergencyMobile || '')}"></div>
+      </div>
+      <fieldset data-field="distance"><span class="legend">Distance</span><div class="choices cols">
+        ${Object.entries(DISTANCES).map(([k, v]) => `<label class="choice"><input type="radio" name="distance" value="${k}" ${d.distance === k ? 'checked' : ''}><span><strong>${esc(v)}</strong></span></label>`).join('')}
+      </div></fieldset>`;
+    },
+    // 2: options
+    () => {
+      if (d.category === 'community') {
+        return `<h2>Getting there and your kit</h2>
+        <div class="notice sun"><p><strong>On 17 April 2027, community participants will be picked up from ${esc(s.event.pickupPlace)} at ${esc(s.event.pickupTime)}.</strong>${s.event.pickupAddressConfirmed && s.event.pickupFullAddress ? ' ' + esc(s.event.pickupFullAddress) : ''}</p></div>
+        <div class="field" data-field="pickupAck"><label class="check"><input type="checkbox" name="pickupAck" ${d.pickupAck ? 'checked' : ''}> I understand the pickup arrangements and will be at ${esc(s.event.pickupPlace)} by ${esc(s.event.pickupTime)}.</label></div>
+        <h3>Sizes</h3>
+        <p class="small muted">We use these to match donated shoes and kit. They are never shown publicly.</p>
+        <div class="row2">
+          <div class="field" data-field="shoeSize"><label for="shoeSize">Shoe size</label><input id="shoeSize" name="shoeSize" type="text" inputmode="decimal" value="${esc(d.kit.shoeSize || '')}"></div>
+          <div class="field" data-field="shoeSystem"><label for="shoeSystem">Shoe sizing system</label><select id="shoeSystem" name="shoeSystem">${['UK', 'EU', 'US'].map((x) => `<option ${d.kit.shoeSystem === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        </div>
+        <div class="row2">
+          <div class="field" data-field="shirtSize"><label for="shirtSize">Shirt / vest size</label><select id="shirtSize" name="shirtSize"><option value="">Choose…</option>${SIZES.map((x) => `<option ${d.kit.shirtSize === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+          <div class="field" data-field="shortsSize"><label for="shortsSize">Pants / shorts size</label><select id="shortsSize" name="shortsSize"><option value="">Choose…</option>${SIZES.map((x) => `<option ${d.kit.shortsSize === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        </div>
+        <fieldset><span class="legend">Do you need any of these?</span>
+          <label class="check"><input type="checkbox" name="needsShoes" ${d.kit.needsShoes ? 'checked' : ''}> Running shoes</label>
+          <label class="check"><input type="checkbox" name="needsKit" ${d.kit.needsKit ? 'checked' : ''}> Running kit (vest and shorts)</label>
+          <span class="hint">Donations depend on what we receive, so we cannot promise items, but we will do our best.</span>
+        </fieldset>
+        <fieldset><span class="legend">Would you like support from a Community Run Buddy?</span>
+          <span class="hint">A registered runner who helps with a training plan and encouragement. Your contact details are shared only if you both agree.</span>
+          <div class="choices cols" style="margin-top:8px">
+            <label class="choice"><input type="radio" name="communityBuddy" value="yes" ${d.communityBuddy ? 'checked' : ''}><span><strong>Yes please</strong></span></label>
+            <label class="choice"><input type="radio" name="communityBuddy" value="no" ${!d.communityBuddy ? 'checked' : ''}><span><strong>No thanks</strong></span></label>
+          </div></fieldset>
+        ${feeNote()}`;
+      }
+      if (d.category === 'melorane_employee') {
+        return `<h2>Getting there</h2>
+          <p>Melorane employees take part in addition to the limited places, so you do not use a group or community place.</p>
+          <p>Race day is 17 April 2027 with an early start – exact time to be confirmed.</p>${feeNote()}`;
+      }
+      const q = d.lodge.wanted && d.lodge.arrival && d.lodge.departure && nightsBetween(d.lodge.arrival, d.lodge.departure) > 0
+        ? lodgeQuote({ nights: nightsBetween(d.lodge.arrival, d.lodge.departure), ratePerNight: s.lodge.ratePerNight, depositPercent: s.lodge.depositPercent }) : null;
+      const dsel = (name, val) => `<select id="${name}" name="${name}"><option value="">Choose…</option>${lodgeDates.map((x) => `<option value="${x}" ${x === val ? 'selected' : ''}>${formatDate(x)}</option>`).join('')}</select>`;
+      return `<h2>Entry fee, accommodation and Run Buddy</h2>
+        <div class="card quiet" style="margin-bottom:20px">
+          <span class="label muted">Charitable entry fee</span>
+          <p class="price" style="margin:4px 0">R1,000 <span class="small muted" style="font-family:var(--body)">per participant, either distance</span></p>
+          <p class="small" style="margin:0">${esc(s.event.proceedsText)}</p>
+        </div>
+        <fieldset data-field="lodge"><span class="legend">Would you like to stay at Canvas Lodge?</span>
+          <span class="hint">Canvas Lodge: R5,500 per person per night, all inclusive. Requests are subject to availability.</span>
+          <div class="choices cols" style="margin-top:8px">
+            <label class="choice"><input type="radio" name="lodgeWanted" value="yes" ${d.lodge.wanted === true ? 'checked' : ''}><span><strong>Yes, request a stay</strong></span></label>
+            <label class="choice"><input type="radio" name="lodgeWanted" value="no" ${d.lodge.wanted === false ? 'checked' : ''}><span><strong>No, I’ll travel on race day</strong></span></label>
+          </div></fieldset>
+        <div id="lodge-yes" ${d.lodge.wanted === true ? '' : 'hidden'}>
+          <div class="row2" data-field="lodgeDates">
+            <div class="field"><label for="arrival">Arrival</label>${dsel('arrival', d.lodge.arrival)}</div>
+            <div class="field"><label for="departure">Departure</label>${dsel('departure', d.lodge.departure)}</div>
+          </div>
+          ${q ? `<table class="summary money"><tbody>
+            <tr><th>${q.nights} night${q.nights > 1 ? 's' : ''} accommodation</th><td>${rand(q.total)}</td></tr>
+            <tr><th>Booking deposit (${s.lodge.depositPercent}%)</th><td>${rand(q.deposit)}</td></tr>
+            <tr><th>Balance (${100 - s.lodge.depositPercent}%) due ${formatDate(s.lodge.balanceDueDate)}</th><td>${rand(q.balance)}</td></tr>
+          </tbody></table>
+          <p class="small muted">The deposit is for accommodation only and is separate from the R1,000 entry fee. Your stay is confirmed only once availability is checked and the deposit is verified.</p>` : ''}
+        </div>
+        <div id="lodge-no" class="field" data-field="transportAck" ${d.lodge.wanted === false ? '' : 'hidden'}>
+          <label class="check"><input type="checkbox" name="transportAck" ${d.transportAck ? 'checked' : ''}> ${esc(TRANSPORT_ACK)}</label>
+        </div>
+        <fieldset style="margin-top:24px"><span class="legend">Would you like to volunteer as a Community Run Buddy?</span>
+          <span class="hint">Support a community participant with a training plan, encouragement and race preparation. Optional.</span>
+          <div class="choices cols" style="margin-top:8px">
+            <label class="choice"><input type="radio" name="buddyOpt" value="yes" ${d.buddy.optIn ? 'checked' : ''}><span><strong>Yes, I’d like to help</strong></span></label>
+            <label class="choice"><input type="radio" name="buddyOpt" value="no" ${!d.buddy.optIn ? 'checked' : ''}><span><strong>Not this time</strong></span></label>
+          </div></fieldset>
+        <div id="buddy-yes" ${d.buddy.optIn ? '' : 'hidden'}>
+          <div class="row2">
+            <div class="field"><label for="bdist">Preferred distance</label><select id="bdist" name="buddyDistance">${Object.entries(DISTANCES).map(([k, v]) => `<option value="${k}" ${(d.buddy.preferredDistance || d.distance) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+            <div class="field"><label for="bcontact">Preferred contact method</label><select id="bcontact" name="buddyContact">${['WhatsApp', 'Phone', 'Email'].map((x) => `<option ${d.buddy.contactMethod === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+          </div>
+          <div class="field" data-field="buddyExperience"><label for="bexp">Running experience</label><input id="bexp" name="buddyExperience" type="text" value="${esc(d.buddy.experience || '')}" placeholder="e.g. two half marathons, parkrun regular"></div>
+          <div class="field" data-field="buddyAvailability"><label for="bav">Availability</label><input id="bav" name="buddyAvailability" type="text" value="${esc(d.buddy.availability || '')}" placeholder="e.g. weekday evenings, Saturday mornings"></div>
+          <div class="field"><label for="bsup">Support you could offer <span class="hint">A sentence or two</span></label><textarea id="bsup" name="buddySupport">${esc(d.buddy.support || '')}</textarea></div>
+        </div>`;
+    },
+    // 3: review
+    () => {
+      const c = CATEGORIES[d.category];
+      const fee = s.fees[d.category];
+      const pool = c.pool ? s.pools[c.pool] : null;
+      const q = d.lodge.wanted ? lodgeQuote({ nights: nightsBetween(d.lodge.arrival, d.lodge.departure), ratePerNight: s.lodge.ratePerNight, depositPercent: s.lodge.depositPercent }) : null;
+      const needsCode = c.employee && !d.organiserVerified;
+      return `<h2>Check your entry</h2>
+        <table class="summary"><tbody>
+          <tr><th>Category</th><td>${esc(c.label)}${c.employee ? (d.inviteCode ? ' · code ' + esc(d.inviteCode) : ' · to be verified by organisers') : ''}</td></tr>
+          <tr><th>Name</th><td>${esc(d.fullName)}</td></tr>
+          <tr><th>Mobile</th><td>${esc(d.mobile)}</td></tr>
+          <tr><th>Email</th><td>${esc(d.email || '—')}</td></tr>
+          ${c.employee ? `<tr><th>Employer</th><td>${esc(d.employer)}</td></tr>` : ''}
+          <tr><th>Emergency contact</th><td>${esc(d.emergencyName)} · ${esc(d.emergencyMobile)}</td></tr>
+          <tr><th>Distance</th><td>${esc(DISTANCES[d.distance])}</td></tr>
+          ${d.category === 'community' ? `<tr><th>Pickup</th><td>${esc(s.event.pickupPlace)}, ${esc(s.event.pickupTime)} – acknowledged</td></tr>
+            <tr><th>Sizes</th><td>Shoe ${esc(d.kit.shoeSize)} ${esc(d.kit.shoeSystem)} · shirt/vest ${esc(d.kit.shirtSize)} · pants/shorts ${esc(d.kit.shortsSize)}</td></tr>
+            <tr><th>Needs</th><td>${[d.kit.needsShoes && 'Shoes', d.kit.needsKit && 'Kit'].filter(Boolean).join(', ') || 'None'}</td></tr>
+            <tr><th>Run Buddy</th><td>${d.communityBuddy ? 'Would like a buddy' : 'No'}</td></tr>` : ''}
+          ${c.adultOptions ? `<tr><th>Canvas Lodge</th><td>${d.lodge.wanted ? `${formatDate(d.lodge.arrival)} to ${formatDate(d.lodge.departure)} (${q.nights} night${q.nights > 1 ? 's' : ''}) – request` : 'No – own transport, early arrival acknowledged'}</td></tr>
+            <tr><th>Run Buddy</th><td>${d.buddy.optIn ? 'Volunteering' : 'No'}</td></tr>` : ''}
+        </tbody></table>
+        <h3 style="margin-top:24px">Amounts</h3>
+        <div class="table-wrap"><table class="data money"><tbody>
+          <tr><td>${esc(fee.label)}</td><td class="num">${fee.confirmed ? rand(fee.amount) : tbc()}</td></tr>
+          ${q ? `<tr><td>Canvas Lodge deposit (${s.lodge.depositPercent}%) – payable once beds are confirmed available</td><td class="num">${rand(q.deposit)}</td></tr>
+          <tr><td>Canvas Lodge balance (${100 - s.lodge.depositPercent}%) – due ${formatDate(s.lodge.balanceDueDate)}</td><td class="num">${rand(q.balance)}</td></tr>` : ''}
+        </tbody></table></div>
+        ${pool && pool.full ? '<div class="notice warn"><p>This category is currently full. Submitting adds you to the <strong>waitlist</strong>. No entry payment is taken.</p></div>'
+          : pool ? `<p class="small muted">Places are allocated when you submit. If the last place goes before then, you will be added to the waitlist instead and nothing is charged.</p>` : ''}
+        ${needsCode && !d.inviteCode ? '<div class="notice warn"><p>Without an invitation code, your entry waits for organiser verification before a place is allocated.</p></div>' : ''}
+        ${fee.amount && fee.confirmed ? `<p class="small muted">After submitting, your place is reserved for ${s.reservationHours} hours while you pay.</p>` : ''}
+        <details style="margin-top:12px"><summary>Read the event terms</summary><div><p>${esc(s.terms.text)}</p><p class="small muted">Version ${esc(s.terms.version)}${s.terms.approved ? '' : ' – draft'}</p></div></details>
+        <details><summary>Read the privacy notice</summary><div><p>ERP uses your details only to run Run Wild Melorane: entries and payments, safety and transport on the day, kit distribution and the Run Buddy programme. Only authorised organisers can see them. We never publish names, contact details, sizes or individual needs, and we only share your contact details with a Run Buddy once you have both agreed. You may ask to see, correct or delete your information at any time (POPIA).</p></div></details>
+        <div class="field" data-field="termsAccepted" style="margin-top:16px"><label class="check"><input type="checkbox" name="termsAccepted" ${d.termsAccepted ? 'checked' : ''}> I accept the event terms.</label></div>
+        <div class="field" data-field="privacyAck"><label class="check"><input type="checkbox" name="privacyAck" ${d.privacyAck ? 'checked' : ''}> I have read the privacy notice.</label></div>`;
+    },
+  ];
+
+  function feeNote() {
+    const fee = s.fees[d.category];
+    if (fee.confirmed) return `<p class="small muted">Entry fee: ${fee.amount ? rand(fee.amount) : 'no entry fee'}.</p>`;
+    return `<div class="notice warn"><p><strong>Entry fee to be confirmed.</strong> The fee for ${esc(CATEGORIES[d.category].label.toLowerCase())}s has not been set yet. Your place will be held and you will not be asked to pay anything until the organisers confirm the fee.</p></div>`;
+  }
+
+  function collect() {
+    const f = form;
+    const val = (n) => (f.elements[n] ? (f.elements[n].type === 'checkbox' ? f.elements[n].checked : f.elements[n].value) : undefined);
+    const radio = (n) => { const r = f.querySelector(`[name="${n}"]:checked`); return r ? r.value : ''; };
+    if (st.step === 0) {
+      d.category = radio('category');
+      d.inviteCode = (val('inviteCode') || '').trim();
+      d.organiserVerified = !!val('organiserVerified');
+    } else if (st.step === 1) {
+      for (const n of ['fullName', 'mobile', 'email', 'emergencyName', 'emergencyMobile', 'employer']) if (f.elements[n]) d[n] = val(n).trim();
+      d.distance = radio('distance');
+    } else if (st.step === 2) {
+      if (d.category === 'community') {
+        d.pickupAck = val('pickupAck');
+        d.kit = { shoeSize: val('shoeSize').trim(), shoeSystem: val('shoeSystem'), shirtSize: val('shirtSize'), shortsSize: val('shortsSize'), needsShoes: val('needsShoes'), needsKit: val('needsKit') };
+        d.communityBuddy = radio('communityBuddy') === 'yes';
+      } else if (CATEGORIES[d.category].adultOptions) {
+        const lw = radio('lodgeWanted');
+        d.lodge = { wanted: lw === 'yes' ? true : lw === 'no' ? false : null, arrival: val('arrival') || '', departure: val('departure') || '' };
+        d.transportAck = !!val('transportAck');
+        d.buddy = radio('buddyOpt') === 'yes'
+          ? { optIn: true, preferredDistance: val('buddyDistance'), contactMethod: val('buddyContact'), experience: val('buddyExperience').trim(), availability: val('buddyAvailability').trim(), support: val('buddySupport').trim() }
+          : { optIn: false };
+      }
+    } else if (st.step === 3) {
+      d.termsAccepted = val('termsAccepted');
+      d.privacyAck = val('privacyAck');
+    }
+  }
+
+  // Quick checks before moving on; the backend re-validates everything on submit.
+  function check() {
+    const e = {};
+    const c = CATEGORIES[d.category];
+    if (st.step === 0 && !c) e.category = 'Choose a participant category.';
+    if (st.step === 1) {
+      if (!d.fullName || d.fullName.length < 3) e.fullName = 'Enter your full name.';
+      if (!validMobile(d.mobile)) e.mobile = 'Enter a South African mobile number, e.g. 082 123 4567.';
+      if (c.emailRequired && !validEmail(d.email)) e.email = 'An email address is required for this category.';
+      else if (d.email && !validEmail(d.email)) e.email = 'Check the email address.';
+      if (c.employee && !d.employer) e.employer = 'Enter your company or employer.';
+      if (!d.emergencyName) e.emergencyName = 'Enter an emergency contact name.';
+      if (!validMobile(d.emergencyMobile)) e.emergencyMobile = 'Enter an emergency contact number.';
+      if (!d.distance) e.distance = 'Choose a distance.';
+    }
+    if (st.step === 2) {
+      if (d.category === 'community') {
+        if (!d.pickupAck) e.pickupAck = 'Please acknowledge the pickup arrangements.';
+        if (!d.kit.shoeSize) e.shoeSize = 'Enter a shoe size.';
+        if (!d.kit.shirtSize) e.shirtSize = 'Choose a size.';
+        if (!d.kit.shortsSize) e.shortsSize = 'Choose a size.';
+      } else if (c.adultOptions) {
+        if (d.lodge.wanted === null) e.lodge = 'Please choose an option.';
+        if (d.lodge.wanted && !(d.lodge.arrival && d.lodge.departure && nightsBetween(d.lodge.arrival, d.lodge.departure) > 0)) e.lodgeDates = 'Choose an arrival date and a later departure date.';
+        if (d.lodge.wanted === false && !d.transportAck) e.transportAck = 'Please acknowledge this to continue.';
+        if (d.buddy.optIn && !d.buddy.experience) e.buddyExperience = 'Tell us a little about your running.';
+        if (d.buddy.optIn && !d.buddy.availability) e.buddyAvailability = 'Tell us when you are available.';
+      }
+    }
+    if (st.step === 3) {
+      if (!d.termsAccepted) e.termsAccepted = 'Please accept the event terms.';
+      if (!d.privacyAck) e.privacyAck = 'Please confirm you have read the privacy notice.';
+    }
+    return e;
+  }
+
+  function draw() {
+    $('#step').innerHTML = steps[st.step]();
+    $$('#steps li').forEach((li, i) => { li.className = i < st.step ? 'done' : i === st.step ? 'on' : ''; });
+    $('#back').style.visibility = st.step === 0 ? 'hidden' : 'visible';
+    $('#next').textContent = st.step === 3 ? 'Submit registration' : 'Continue';
+    $('.form-error', form).hidden = true;
+    wire();
+  }
+
+  function wire() {
+    const mark = () => $$('.choice', form).forEach((c) => c.classList.toggle('checked', !!c.querySelector('input:checked')));
+    $$('.choice input', form).forEach((i) => i.addEventListener('change', mark));
+    mark();
+    $$('[name=category]', form).forEach((i) => i.addEventListener('change', () => { $('#code-box').hidden = !CATEGORIES[i.value].employee; }));
+    $$('[name=lodgeWanted]', form).forEach((i) => i.addEventListener('change', () => { $('#lodge-yes').hidden = i.value !== 'yes'; $('#lodge-no').hidden = i.value !== 'no'; }));
+    $$('[name=buddyOpt]', form).forEach((i) => i.addEventListener('change', () => { $('#buddy-yes').hidden = i.value !== 'yes'; }));
+    ['arrival', 'departure'].forEach((n) => form.elements[n] && form.elements[n].addEventListener('change', () => { collect(); draw(); }));
+  }
+
+  $('#back').addEventListener('click', () => { collect(); st.step = Math.max(0, st.step - 1); draw(); window.scrollTo(0, 0); });
+
+  let submitting = false;
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    collect();
+    const errs = check();
+    if (Object.keys(errs).length) return showErrors(form, { message: 'Please check the highlighted fields.', fields: errs });
+    if (st.step < 3) { st.step++; draw(); window.scrollTo(0, 0); return; }
+    if (submitting) return;
+    submitting = true;
+    $('#next').disabled = true;
+    $('#next').textContent = 'Submitting…';
+    const input = {
+      clientRequestId: st.clientRequestId,
+      category: d.category, fullName: d.fullName, mobile: d.mobile, email: d.email, emergencyName: d.emergencyName, emergencyMobile: d.emergencyMobile,
+      distance: d.distance, employer: d.employer, inviteCode: d.inviteCode, organiserVerified: d.organiserVerified,
+      termsAccepted: d.termsAccepted, privacyAck: d.privacyAck,
+    };
+    if (CATEGORIES[d.category].adultOptions) Object.assign(input, { lodge: d.lodge, transportAck: d.transportAck, buddy: d.buddy });
+    if (d.category === 'community') Object.assign(input, { pickupAck: d.pickupAck, kit: d.kit, buddy: { optIn: d.communityBuddy } });
+    try {
+      const conf = await api.submitRegistration(input, { token: token || undefined });
+      showConfirmation(el, conf, d);
+    } catch (err) {
+      submitting = false;
+      $('#next').disabled = false;
+      $('#next').textContent = 'Submit registration';
+      const target = Math.min(...Object.keys(err.fields || {}).map((k) => FIELD_STEP[k] ?? 3), 3);
+      if (Number.isFinite(target) && target !== st.step) { st.step = target; draw(); }
+      showErrors(form, err);
+    }
+  });
+
+  draw();
+}
+
+function showConfirmation(el, conf, d) {
+  const heading = { confirmed: 'You’re in', reserved: 'Your place is reserved', waitlisted: 'You’re on the waitlist', draft: 'Entry received – awaiting verification' }[conf.status] || 'Registration received';
+  el.innerHTML = `${pageHead('Entries', heading)}
+    <section class="section"><div class="wrap narrow">
+      ${conf.duplicateSubmission ? '<div class="notice"><p>We had already received this registration, so no duplicate entry was created.</p></div>' : ''}
+      <div class="notice sun"><p><strong>Keep your reference number.</strong> You need it with your mobile number to view your entry, pay, or ask the organisers anything.${!d.email ? ' As you did not give an email address, please write it down or take a screenshot now.' : ''}</p></div>
+      <div class="card">${confirmationHTML(conf)}</div>
+      <p class="small muted" style="margin-top:16px">A confirmation ${d.email ? 'email and SMS have' : 'SMS has'} been queued. In this preview no email or SMS provider is connected, so nothing has actually been sent.</p>
+      <div class="btn-row no-print"><a class="btn navy" href="#/my-entry/${encodeURIComponent(conf.ref)}">Go to My entry</a><button class="btn plain" onclick="window.print()">Print</button></div>
+    </div></section>`;
+  try { sessionStorage.setItem('rw-my', JSON.stringify({ ref: conf.ref, mobile: d.mobile })); } catch { /* ignore */ }
+  window.scrollTo(0, 0);
+}

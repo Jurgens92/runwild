@@ -1,0 +1,162 @@
+// Pure business rules shared by the browser app, the demo backend and the tests.
+// Amounts are integer cents (ZAR). Dates are ISO yyyy-mm-dd in Africa/Johannesburg.
+
+export const TZ = 'Africa/Johannesburg';
+
+export const CATEGORIES = {
+  group_employee: { label: 'Group employee', pool: 'combined', employee: true, emailRequired: true, adultOptions: true },
+  melorane_employee: { label: 'Melorane employee', pool: null, employee: true, emailRequired: false, adultOptions: false },
+  other: { label: 'Other participant', pool: 'combined', employee: false, emailRequired: true, adultOptions: true },
+  community: { label: 'Community member', pool: 'community', employee: false, emailRequired: false, adultOptions: false },
+};
+
+export const POOLS = {
+  combined: { label: 'Group employees + other participants' },
+  community: { label: 'Community members' },
+};
+
+export const DISTANCES = {
+  '21k': '21 km trail run',
+  '5k': '5 km run/walk',
+};
+
+export const STATUS_LABELS = {
+  draft: 'Draft',
+  reserved: 'Reserved – pending payment',
+  confirmed: 'Confirmed',
+  waitlisted: 'Waitlisted',
+  cancelled: 'Cancelled',
+};
+
+export function rand(cents) {
+  if (cents === null || cents === undefined) return '—';
+  const neg = cents < 0;
+  const abs = Math.abs(Math.round(cents));
+  const whole = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const c = abs % 100;
+  return (neg ? '-R' : 'R') + whole + (c ? '.' + String(c).padStart(2, '0') : '');
+}
+
+// Today's date in Johannesburg as yyyy-mm-dd.
+export function todayJHB(now = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+export function formatDate(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  return new Intl.DateTimeFormat('en-ZA', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' }).format(dt);
+}
+
+export function formatDateTime(ts) {
+  if (!ts) return '—';
+  return new Intl.DateTimeFormat('en-ZA', {
+    timeZone: TZ, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(ts));
+}
+
+export function addDays(iso, n) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + n));
+  return dt.toISOString().slice(0, 10);
+}
+
+export function nightsBetween(arrival, departure) {
+  if (!arrival || !departure) return 0;
+  const a = Date.parse(arrival + 'T00:00:00Z');
+  const b = Date.parse(departure + 'T00:00:00Z');
+  return Math.round((b - a) / 86400000);
+}
+
+// The individual nights (by check-in date) covered by a stay.
+export function stayNights(arrival, departure) {
+  const n = nightsBetween(arrival, departure);
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(addDays(arrival, i));
+  return out;
+}
+
+// Canvas Lodge maths. Deposit is 20 % of the accommodation total and never touches the entry fee.
+export function lodgeQuote({ nights, ratePerNight, depositPercent = 20 }) {
+  const total = ratePerNight * nights;
+  const deposit = Math.round((total * depositPercent) / 100);
+  return { nights, total, deposit, balance: total - deposit };
+}
+
+// When is the remaining 80 % due? Bookings made after the standard due date fall under the
+// organiser's late-booking policy, which may still be unconfirmed.
+export function lodgeBalanceDue({ bookedOn, standardDueDate, latePolicy }) {
+  if (bookedOn <= standardDueDate) return { date: standardDueDate, note: null };
+  if (!latePolicy || !latePolicy.confirmed) {
+    return { date: null, note: 'Booked after ' + formatDate(standardDueDate) + ' – late-booking terms to be confirmed by the organisers.' };
+  }
+  if (latePolicy.mode === 'full_on_booking') return { date: bookedOn, note: latePolicy.text || 'Full amount due on booking.' };
+  if (latePolicy.mode === 'days_after_booking') return { date: addDays(bookedOn, latePolicy.days || 7), note: latePolicy.text || null };
+  return { date: null, note: latePolicy.text || 'See late-booking terms.' };
+}
+
+export function isReservationLive(reg, now) {
+  return reg.status === 'reserved' && (!reg.expiresAt || reg.expiresAt > now);
+}
+
+// A registration occupies a place when confirmed, or reserved and not yet expired.
+export function occupiesPlace(reg, now) {
+  return reg.status === 'confirmed' || isReservationLive(reg, now);
+}
+
+export function poolUsage(registrations, settings, now) {
+  const out = {};
+  for (const [key, def] of Object.entries(settings.pools)) {
+    const regs = registrations.filter((r) => CATEGORIES[r.category].pool === key);
+    const confirmed = regs.filter((r) => r.status === 'confirmed').length;
+    const reserved = regs.filter((r) => isReservationLive(r, now)).length;
+    const used = confirmed + reserved;
+    out[key] = {
+      limit: def.limit,
+      confirmed,
+      reserved,
+      used,
+      remaining: Math.max(0, def.limit - used),
+      waitlisted: regs.filter((r) => r.status === 'waitlisted').length,
+    };
+  }
+  return out;
+}
+
+// Entry fee for a category. Returns { amount, confirmed }. amount is null while unconfirmed.
+export function entryFee(settings, category) {
+  const f = settings.fees[category];
+  return { amount: f.confirmed ? f.amount : null, confirmed: !!f.confirmed, label: f.label };
+}
+
+export function sumPaid(payments, chargeId) {
+  return payments.filter((p) => p.chargeId === chargeId && p.status === 'received').reduce((s, p) => s + p.amount, 0);
+}
+
+const REF_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export function makeRef(prefix, randomFn = Math.random) {
+  let s = '';
+  for (let i = 0; i < 5; i++) s += REF_ALPHABET[Math.floor(randomFn() * REF_ALPHABET.length)];
+  return prefix + '-' + s;
+}
+
+export function uid() {
+  if (globalThis.crypto && globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID();
+  return 'id-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+export function normaliseMobile(m) {
+  let d = String(m || '').replace(/[^\d+]/g, '');
+  if (d.startsWith('+27')) d = '0' + d.slice(3);
+  if (d.startsWith('27') && d.length === 11) d = '0' + d.slice(2);
+  return d;
+}
+
+export function validMobile(m) {
+  return /^0\d{9}$/.test(normaliseMobile(m));
+}
+
+export function validEmail(e) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+}

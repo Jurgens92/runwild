@@ -1,0 +1,12 @@
+{
+  "name": "run-wild-melorane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run Wild Melorane event site (ERP) – static preview with an in-browser backend, plus production SQL.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "test:sql": "bash supabase/test.sh",
+    "serve": "python3 -m http.server 8080"
+  }
+}
