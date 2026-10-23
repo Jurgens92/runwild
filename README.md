@@ -6,7 +6,7 @@ This is a working preview, not a mock-up. It includes registration with capacity
 
 | | |
 |---|---|
-| Public pages | Home · Register · Canvas Lodge · Water points · Donate shoes or kit · Run Buddy · Info & FAQ · My entry |
+| Public pages | Home · Race info & FAQ · Get involved (water points, shoe and kit donations, Run Buddy) · My entry · Register. Canvas Lodge is linked from Home and Race info. |
 | Organiser | `#/organiser` – preview sign-in `organiser@preview.local` / `runwild-preview` |
 | Invitation codes (preview) | `GROUP-PREVIEW`, `MELORANE-PREVIEW` |
 
