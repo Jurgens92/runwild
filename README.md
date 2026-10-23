@@ -83,6 +83,7 @@ The event site links back to www.erp.ngo in its footer and uses the same navy, O
 
 The organiser dashboard has a live version of this list (**Launch checklist** tab).
 
+- [ ] Confirmed course for both distances (GPX track with elevation) to replace the sample route in `js/route.js`
 - [ ] Exact race start time (the site shows "Early start – exact time to be confirmed" until it is set)
 - [ ] Melorane employee entry fee and community member entry fee (no fee is assumed – both show "to be confirmed")
 - [ ] Turn off "accept registrations while a fee is unconfirmed"
@@ -111,6 +112,7 @@ js/defaults.js        organiser-editable settings and labelled sample data
 js/backend.js         preview backend (locking, capacity, payments, permissions, audit)
 js/app.js             public pages and router
 js/register.js        registration wizard with review step
+js/route.js           route map and elevation profile (sample course until the GPX is supplied)
 js/organiser.js       organiser dashboard
 tests/scenarios.js    acceptance scenarios (also runnable from the dashboard)
 supabase/schema.sql   production database, functions and row-level security
