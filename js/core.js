@@ -181,10 +181,30 @@ export function validEmail(e) {
 
 // ---------- race entries opening date ----------
 
-// Race entries open on settings.registration.opensOn (a Johannesburg date). Before then the race is closed to the public.
+// Race entries: mode 'auto' opens them at opensOn + opensAt (Johannesburg time); 'open' and 'closed'
+// override the date, e.g. to test registration before the real opening.
+export const ENTRY_MODES = {
+  auto: 'Automatic – open on the date below',
+  open: 'Open now',
+  closed: 'Closed',
+};
+
+export function registrationOpensAt(reg = {}) {
+  if (!reg.opensOn) return null;
+  return Date.parse(reg.opensOn + 'T' + (reg.opensAt || '00:00') + ':00+02:00');
+}
+
 export function registrationOpen(settings, now = Date.now()) {
-  const on = settings.registration && settings.registration.opensOn;
-  return !on || todayJHB(new Date(now)) >= on;
+  const reg = settings.registration || {};
+  if (reg.mode === 'open') return true;
+  if (reg.mode === 'closed') return false;
+  const at = registrationOpensAt(reg);
+  return at === null || now >= at;
+}
+
+// "1 February 2027" or "1 February 2027 at 08:00"
+export function opensLabel(reg = {}) {
+  return formatDate(reg.opensOn) + (reg.opensAt && reg.opensAt !== '00:00' ? ' at ' + reg.opensAt : '');
 }
 
 // ---------- launch event ----------
