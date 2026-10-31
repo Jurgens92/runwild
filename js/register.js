@@ -1,6 +1,7 @@
 import { api, esc, $, $$, pageHead, showErrors, rand, formatDate, tbc } from './ui.js';
 import { formatDay, CATEGORIES, DISTANCES, SHIRT_SIZES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, validEmail, validMobile } from './core.js';
 import { confirmationHTML } from './app.js';
+import { bindPdfButton } from './pdf.js';
 
 const TRANSPORT_ACK = 'The event will have an early start from Melorane ERP Game Reserve. I am responsible for arranging my transport and arriving on time.';
 const SIZES = SHIRT_SIZES;
@@ -430,8 +431,9 @@ function showConfirmation(el, conf, d) {
       <div class="notice sun"><p><strong>Keep your reference number.</strong> You need it with your mobile number to view your entry, pay, or ask the organisers anything.${!d.email ? ' As you did not give an email address, please write it down or take a screenshot now.' : ''}</p></div>
       <div class="card">${confirmationHTML(conf)}</div>
       <p class="small muted" style="margin-top:16px">A confirmation ${d.email ? 'email and SMS have' : 'SMS has'} been queued. In this preview no email or SMS provider is connected, so nothing has actually been sent.</p>
-      <div class="btn-row no-print"><a class="btn navy" href="#/my-entry/${encodeURIComponent(conf.ref)}">Go to My entry</a><button class="btn plain" onclick="window.print()">Print</button></div>
+      <div class="btn-row no-print"><a class="btn navy" href="#/my-entry/${encodeURIComponent(conf.ref)}">Go to My entry</a><button class="btn" id="pdf">Download PDF</button><button class="btn plain" onclick="window.print()">Print</button></div>
     </div></section>`;
+  bindPdfButton(el.querySelector('#pdf'), () => conf);
   try { sessionStorage.setItem('rw-my', JSON.stringify({ ref: conf.ref, mobile: d.mobile })); } catch { /* ignore */ }
   window.scrollTo(0, 0);
 }

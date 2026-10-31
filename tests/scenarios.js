@@ -561,4 +561,21 @@ export const scenarios = [
       eq(v.status, 'waitlisted', 'verified into a full pool goes to the waitlist');
     },
   },
+  {
+    name: 'Organisers can fetch an entry confirmation (for the PDF); anyone else cannot',
+    async run() {
+      const { be } = await setup();
+      const r = await be.submitRegistration(person('other', '5k'));
+      const id = await be._read((s) => s.registrations.find((x) => x.ref === r.ref).id);
+      let refused = false;
+      try { await be.entryConfirmation('not-a-token', id); } catch (e) { refused = e instanceof AuthError; }
+      assert(refused, 'needs a signed-in organiser');
+      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      const c = await be.entryConfirmation(tok, id);
+      eq(c.ref, r.ref, 'same entry');
+      eq(c.status, r.status, 'same status as the participant sees');
+      eq(c.charges.length, r.charges.length, 'same charges');
+      assert(c.email && c.mobile, 'includes contact details for emailing');
+    },
+  },
 ];

@@ -1097,6 +1097,16 @@ export class Backend {
     });
   }
 
+  // The participant's confirmation, as they see it, so an organiser can download or email it.
+  async entryConfirmation(token, regId) {
+    return this._read((s) => {
+      this._session(s, token, 'viewer');
+      const r = s.registrations.find((x) => x.id === regId);
+      if (!r) throw new ValidationError('Registration not found.');
+      return { ...this._confirmation(s, r), email: r.email || '', mobile: r.mobile || '' };
+    });
+  }
+
   async organiserAction(token, action, args = {}) {
     return this._write((s) => {
       const me = this._session(s, token, 'organiser');
