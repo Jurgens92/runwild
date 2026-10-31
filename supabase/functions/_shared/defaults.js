@@ -48,9 +48,11 @@ export function defaultSettings() {
     fees: {
       group_employee: { amount: 100000, confirmed: true, label: 'Charitable entry fee' },
       other: { amount: 100000, confirmed: true, label: 'Charitable entry fee' },
-      melorane_employee: { amount: null, confirmed: false, label: 'Entry fee' },
-      community: { amount: null, confirmed: false, label: 'Entry fee' },
+      melorane_employee: { amount: 0, confirmed: true, label: 'Entry fee' },
+      community: { amount: 0, confirmed: true, label: 'Entry fee' },
     },
+    // Free categories: an organiser checks each entry before it is confirmed.
+    verifyCategories: ['community', 'melorane_employee'],
     // Preview only: lets reviewers try the community and Melorane flows before fees are set.
     // Places are held without a payment request; nothing is charged. Switch off before launch.
     acceptWhileFeeUnconfirmed: true,
@@ -190,12 +192,15 @@ export function sampleData(now, settings) {
   mk('group_employee', '5k', 'reserved', { expiresAt: now + 50 * 3600000, transportAck: true });
   mk('other', '21k', 'cancelled', { cancelReason: 'Withdrew (sample)' });
 
-  // Community pool: 13 held of 16 (fee unconfirmed, so held without a payment request).
+  // Community pool: 13 of 16 places used (free entry; held places wait for an organiser to check them).
   const sizes = ['6', '7', '8', '9', '10', '7', '8', '5', '9', '6', '8', '11', '7'];
   const shirts = ['S', 'M', 'L', 'M', 'XL', 'S', 'M', 'XS', 'L', 'M', 'M', 'L', 'S'];
   for (let i = 0; i < 13; i++) {
-    mk('community', i % 2 ? '5k' : '21k', 'reserved', {
-      expiresAt: null, holdReason: 'fee_unconfirmed', assisted: i % 4 === 0, shirtSize: shirts[i],
+    // Free entries: the first nine have been checked by an organiser, the rest are waiting.
+    const checked = i < 9;
+    mk('community', i % 2 ? '5k' : '21k', checked ? 'confirmed' : 'reserved', {
+      expiresAt: null, holdReason: checked ? null : 'awaiting_verification', verification: checked ? 'verified' : 'pending', verifiedBy: checked ? 'organiser@preview.local' : undefined,
+      assisted: i % 4 === 0, shirtSize: shirts[i],
       kit: { shoeSize: sizes[i], shoeSystem: 'UK', shirtSize: shirts[i], shortsSize: shirts[i], needsShoes: i % 3 !== 2, needsKit: i % 2 === 0 },
       buddy: i < 6 ? { optIn: true, status: i < 2 ? 'matched' : 'awaiting_match' } : { optIn: false },
     });
@@ -204,8 +209,8 @@ export function sampleData(now, settings) {
   // Melorane employees: outside both limited pools. Some have asked for running kit.
   for (let i = 0; i < 6; i++) {
     const needs = i < 3;
-    mk('melorane_employee', i % 2 ? '5k' : '21k', 'reserved', {
-      expiresAt: null, holdReason: 'fee_unconfirmed', shirtSize: shirts[i + 2],
+    mk('melorane_employee', i % 2 ? '5k' : '21k', i < 4 ? 'confirmed' : 'reserved', {
+      expiresAt: null, holdReason: i < 4 ? null : 'awaiting_verification', verification: i < 4 ? 'verified' : 'pending', shirtSize: shirts[i + 2],
       kit: needs ? { shoeSize: sizes[i + 3], shoeSystem: 'UK', shirtSize: shirts[i + 2], shortsSize: shirts[i + 2], needsShoes: true, needsKit: i !== 1 } : { shoeSize: '', shoeSystem: '', shirtSize: shirts[i + 2], shortsSize: '', needsShoes: false, needsKit: false },
     });
   }

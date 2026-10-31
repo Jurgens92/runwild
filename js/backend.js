@@ -10,11 +10,11 @@
 import {
   CATEGORIES, DISTANCES, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
   normaliseMobile, validMobile, validEmail, nightsBetween, stayNights, lodgeQuote, lodgeBalanceDue, todayJHB,
-  formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES, isPersonalEmail, emailDomain,
+  formatDate, codeHasUses, needsOrganiserCheck, SHIRT_SIZES, SOCK_SIZES, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES, isPersonalEmail, emailDomain,
 } from './core.js';
 import { defaultSettings, sampleData, PREVIEW_USERS, liveSettings } from './defaults.js';
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 const HOUR = 3600000;
 
 export const ROLES = {
@@ -149,12 +149,29 @@ export class Backend {
       if (st.version > SCHEMA_VERSION) throw new Error('The database was written by a newer version of the site. Deploy the latest backend.');
       const base = this._empty();
       for (const k of Object.keys(base)) if (st[k] === undefined) st[k] = base[k];
+      if (st.version < 9) this._upgradeTo9(st);
       st.audit.push({ id: uid(), at: this.now(), actor: 'system', action: 'database.upgraded', target: '', details: 'Version ' + st.version + ' → ' + SCHEMA_VERSION });
       st.version = SCHEMA_VERSION;
       dirty = true;
     }
     st.settings = deepMerge(defaultSettings(), st.settings || {});
     return { st, dirty };
+  }
+
+  // Version 9: community members and Melorane employees enter free, checked by an organiser.
+  _upgradeTo9(st) {
+    for (const cat of ['community', 'melorane_employee']) {
+      const f = st.settings && st.settings.fees && st.settings.fees[cat];
+      if (f && !f.confirmed) { f.amount = 0; f.confirmed = true; }
+    }
+    if (st.settings && !st.settings.verifyCategories) st.settings.verifyCategories = ['community', 'melorane_employee'];
+    for (const r of st.registrations || []) {
+      if (['community', 'melorane_employee'].includes(r.category) && r.status === 'reserved' && r.holdReason === 'fee_unconfirmed') {
+        if (r.verification !== 'verified') r.verification = 'pending';
+        r.holdReason = r.verification === 'pending' ? 'awaiting_verification' : null;
+        if (r.verification === 'verified') r.status = 'confirmed';
+      }
+    }
   }
 
   async _load() {
@@ -262,6 +279,7 @@ export class Backend {
         launch: clone(st.launchEvent),
         terms: clone(st.terms),
         socks: clone(st.socks),
+        verifyCategories: clone(st.verifyCategories || []),
         lodge: {
           ratePerNight: st.lodge.ratePerNight, depositPercent: st.lodge.depositPercent, minNights: st.lodge.minNights, balanceDueDate: st.lodge.balanceDueDate,
           inventoryConfirmed: st.lodge.inventoryConfirmed, latePolicy: clone(st.lodge.latePolicy),
@@ -441,7 +459,13 @@ export class Backend {
       }
       s.registrations.push(reg);
 
-      if (cat.employee) {
+      if (needsOrganiserCheck(s.settings, input.category)) {
+        // Free category: an organiser checks every entry. The place is held meanwhile.
+        if (organiser && input.organiserVerified) { reg.verification = 'verified'; reg.verifiedBy = organiser.email; }
+        else reg.verification = 'pending';
+        if (input.inviteCode) reg.inviteCodeTried = String(input.inviteCode).slice(0, 40);
+        this._allocate(s, reg);
+      } else if (cat.employee) {
         const code = s.settings.inviteCodes.find((x) => x.code.toUpperCase() === String(input.inviteCode || '').trim().toUpperCase());
         if (organiser && input.organiserVerified) {
           reg.verification = 'verified';
@@ -454,7 +478,7 @@ export class Backend {
           reg.inviteCodeTried = String(input.inviteCode).slice(0, 40);
         }
       }
-      if (reg.verification !== 'pending') this._allocate(s, reg);
+      if (!needsOrganiserCheck(s.settings, input.category) && reg.verification !== 'pending') this._allocate(s, reg);
 
       if (reg.lodge && reg.lodge.wanted) this._createLodgeRequest(s, reg, input.lodge.arrival, input.lodge.departure);
 
@@ -485,7 +509,12 @@ export class Backend {
   _hold(s, reg) {
     const fee = entryFee(s.settings, reg.category);
     reg.holdReason = null;
-    if (!fee.confirmed) {
+    if (reg.verification === 'pending' && needsOrganiserCheck(s.settings, reg.category)) {
+      // Held until an organiser checks it; nothing payable yet.
+      reg.status = 'reserved';
+      reg.expiresAt = null;
+      reg.holdReason = 'awaiting_verification';
+    } else if (!fee.confirmed) {
       reg.status = 'reserved';
       reg.expiresAt = null;
       reg.holdReason = 'fee_unconfirmed';
@@ -507,7 +536,7 @@ export class Backend {
   _sockCharge(s, reg) {
     const so = s.settings.socks;
     if (!reg.socks || !reg.socks.qty || !so.confirmed || !so.price) return null;
-    if (!['reserved', 'confirmed'].includes(reg.status)) return null;
+    if (!['reserved', 'confirmed'].includes(reg.status) || reg.holdReason === 'awaiting_verification') return null;
     let ch = s.charges.find((c) => c.ownerId === reg.id && c.kind === 'socks');
     if (!ch) ch = this._charge(s, { kind: 'socks', ownerType: 'registration', ownerId: reg.id, label: so.label + ' × ' + reg.socks.qty + ' (' + reg.socks.size + ')', amount: so.price * reg.socks.qty, ref: reg.ref + '-S' });
     return ch;
@@ -1079,7 +1108,9 @@ export class Backend {
           if (reg.verification !== 'pending') throw new ValidationError('This entry is not awaiting verification.');
           if (args.approve) {
             reg.verification = 'verified'; reg.verifiedBy = who;
-            this._allocate(s, reg);
+            // A held place is confirmed; a waitlisted entry keeps its place in the queue; a draft gets a place now.
+            if (reg.status === 'reserved') this._hold(s, reg);
+            else if (reg.status !== 'waitlisted') this._allocate(s, reg);
             if (reg.lodge && reg.lodge.requestId) {
               const lr = s.lodgeRequests.find((l) => l.id === reg.lodge.requestId);
               if (lr && lr.status === 'requested' && reg.status !== 'waitlisted') this._tryHoldBeds(s, lr, reg);
@@ -1092,7 +1123,7 @@ export class Backend {
             this._allocate(s, reg);
             this._audit(s, who, 'employee.reassigned', reg.ref, from + ' → ' + reg.category + ', ' + reg.status);
           } else {
-            reg.verification = 'declined'; reg.status = 'cancelled'; reg.cancelReason = 'Employee verification declined';
+            reg.verification = 'declined'; reg.status = 'cancelled'; reg.expiresAt = null; reg.cancelReason = needsOrganiserCheck(s.settings, reg.category) ? 'Entry declined after checking' : 'Employee verification declined';
             this._audit(s, who, 'employee.declined', reg.ref);
           }
           this._sendConfirmation(s, reg, this._confirmation(s, reg));
@@ -1275,6 +1306,7 @@ export class Backend {
       const e = [];
       for (const k of ['combined', 'community']) if (!Number.isInteger(next.pools[k].limit) || next.pools[k].limit < 0) e.push('Pool limits must be whole numbers.');
       if (!(next.reservation.expiryHours >= 1)) e.push('Reservation expiry must be at least 1 hour.');
+      if (!Array.isArray(next.verifyCategories) || next.verifyCategories.some((c) => !CATEGORIES[c])) e.push('Choose which categories organisers check.');
       for (const [cat, f] of Object.entries(next.fees)) if (f.confirmed && !(Number.isInteger(f.amount) && f.amount >= 0)) e.push('Set an amount for ' + CATEGORIES[cat].label + ' before confirming it.');
       if (!(next.waterPoints.price > 0)) e.push('Water point price must be above zero.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(next.registration.opensOn || '')) e.push('Set the date race entries open.');

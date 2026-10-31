@@ -10,7 +10,7 @@ const CAT_BLURB = {
   group_employee: 'Employees of ERP group companies · invitation code',
   other: 'Friends, family and anyone else who would like to run',
   community: 'Members of the Melorane community · pickup from PJ',
-  melorane_employee: 'Unlimited entries · invitation code',
+  melorane_employee: 'Unlimited entries · checked by the organisers',
 };
 
 // Which wizard step owns each field, so server-side errors send the user back to the right place.
@@ -82,12 +82,17 @@ export async function renderRegister(el) {
   };
 
   // The entry fee is revealed only once a category has been picked.
+  // Free categories where an organiser checks every entry (and invitation codes are not used).
+  const checked = (key) => (s.verifyCategories || []).includes(key);
+  const usesCode = (key) => !!CATEGORIES[key]?.employee && !checked(key);
+  const CHECK_NOTE = 'An organiser checks each entry before it is confirmed. Your place is held in the meantime.';
+
   const feeReveal = (key) => {
     if (!key) return '';
     const fee = s.fees[key];
     const label = CATEGORIES[key].label.toLowerCase() + 's';
     if (!fee.confirmed) return `<div class="notice"><p><strong>Entry fee for ${esc(label)}:</strong> to be confirmed. Nothing is payable until the organisers confirm it.</p></div>`;
-    if (!fee.amount) return `<div class="notice ok"><p><strong>No entry fee</strong> for ${esc(label)}.</p></div>`;
+    if (!fee.amount) return `<div class="notice ok"><p><strong>Free entry</strong> for ${esc(label)}, including your RunWild running shirt.${checked(key) ? ' ' + CHECK_NOTE : ''}</p></div>`;
     return `<div class="notice sun"><p><strong>${esc(fee.label)}: ${rand(fee.amount)}</strong> per participant, either distance. Your RunWild running shirt is included.</p></div>`;
   };
 
@@ -130,10 +135,10 @@ export async function renderRegister(el) {
         ${['group_employee', 'other', 'community', 'melorane_employee'].map(catCard).join('')}
       </div></fieldset>
       <div id="fee-box">${feeReveal(d.category)}</div>
-      <div id="code-box" ${CATEGORIES[d.category]?.employee ? '' : 'hidden'}>
-        <div class="field" data-field="inviteCode"><label for="inviteCode">Employee invitation code <span class="hint">Your code from the organisers confirms you are an employee. No code? Continue – the organisers will verify you before a place is allocated.</span></label>
+      <div id="code-box" ${usesCode(d.category) || (token && checked(d.category)) ? '' : 'hidden'}>
+        <div class="field" data-field="inviteCode" id="code-field" ${usesCode(d.category) ? '' : 'hidden'}><label for="inviteCode">Employee invitation code <span class="hint">Your code from the organisers confirms you are an employee. No code? Continue – the organisers will verify you before a place is allocated.</span></label>
           <input id="inviteCode" name="inviteCode" type="text" value="${esc(d.inviteCode || '')}" autocapitalize="characters"></div>
-        ${token ? `<label class="check"><input type="checkbox" name="organiserVerified" ${d.organiserVerified ? 'checked' : ''}> I have verified this person’s employment (organiser)</label>` : ''}
+        ${token ? `<label class="check"><input type="checkbox" name="organiserVerified" ${d.organiserVerified ? 'checked' : ''}> I have checked this person’s details – confirm the entry now (organiser)</label>` : ''}
       </div>`,
     // 1: details
     () => {
@@ -231,7 +236,7 @@ export async function renderRegister(el) {
       const fee = s.fees[d.category];
       const pool = c.pool ? s.pools[c.pool] : null;
       const q = d.lodge.wanted ? lodgeQuote({ nights: nightsBetween(d.lodge.arrival, d.lodge.departure), ratePerNight: s.lodge.ratePerNight, depositPercent: s.lodge.depositPercent }) : null;
-      const needsCode = c.employee && !d.organiserVerified;
+      const needsCode = usesCode(d.category) && !d.organiserVerified;
       const sq = Number(d.socks.qty || 0);
       const so = s.socks;
       const kitNeeds = [d.kit.needsShoes && 'Shoes (' + d.kit.shoeSize + ' ' + d.kit.shoeSystem + ')', d.kit.needsKit && 'Kit (shorts ' + d.kit.shortsSize + ')'].filter(Boolean).join(', ') || 'None';
@@ -263,6 +268,7 @@ export async function renderRegister(el) {
         </tbody></table></div>
         ${pool && pool.full ? '<div class="notice warn"><p>This category is currently full. Submitting adds you to the <strong>waitlist</strong>. No entry payment is taken.</p></div>'
           : pool ? `<p class="small muted">Places are allocated when you submit. If the last place goes before then, you will be added to the waitlist instead and nothing is charged.</p>` : ''}
+        ${checked(d.category) && !d.organiserVerified ? `<div class="notice"><p>${CHECK_NOTE} We will let you know once it is confirmed.</p></div>` : ''}
         ${needsCode && !d.inviteCode ? '<div class="notice warn"><p>Without an invitation code, your entry waits for organiser verification before a place is allocated.</p></div>' : ''}
         ${fee.amount && fee.confirmed ? `<p class="small muted">After submitting, your place is reserved for ${s.reservationHours} hours while you pay.</p>` : ''}
         <details style="margin-top:12px"><summary>Read the event terms</summary><div><p>${esc(s.terms.text)}</p><p class="small muted">Version ${esc(s.terms.version)}${s.terms.approved ? '' : ' – draft'}</p></div></details>
@@ -274,7 +280,7 @@ export async function renderRegister(el) {
 
   function feeNote() {
     const fee = s.fees[d.category];
-    if (fee.confirmed) return `<p class="small muted">Entry fee: ${fee.amount ? rand(fee.amount) : 'no entry fee'}.</p>`;
+    if (fee.confirmed) return `<p class="small muted">Entry fee: ${fee.amount ? rand(fee.amount) : 'free'}.${checked(d.category) ? ' ' + CHECK_NOTE : ''}</p>`;
     return `<div class="notice warn"><p><strong>Entry fee to be confirmed.</strong> The fee for ${esc(CATEGORIES[d.category].label.toLowerCase())}s has not been set yet. Your place will be held and you will not be asked to pay anything until the organisers confirm the fee.</p></div>`;
   }
 
@@ -366,7 +372,11 @@ export async function renderRegister(el) {
     const mark = () => $$('.choice', form).forEach((c) => c.classList.toggle('checked', !!c.querySelector('input:checked')));
     $$('.choice input', form).forEach((i) => i.addEventListener('change', mark));
     mark();
-    $$('[name=category]', form).forEach((i) => i.addEventListener('change', () => { $('#code-box').hidden = !CATEGORIES[i.value].employee; $('#fee-box').innerHTML = feeReveal(i.value); }));
+    $$('[name=category]', form).forEach((i) => i.addEventListener('change', () => {
+      $('#code-box').hidden = !(usesCode(i.value) || (token && checked(i.value)));
+      $('#code-field').hidden = !usesCode(i.value);
+      $('#fee-box').innerHTML = feeReveal(i.value);
+    }));
     $$('[name=socksQty]', form).forEach((i) => i.addEventListener('change', () => { $('#socks-size').hidden = Number(i.value) === 0; }));
     if (d.category === 'melorane_employee') $$('[name=needsShoes],[name=needsKit]', form).forEach((i) => i.addEventListener('change', () => { $('#kit-sizes').hidden = !(form.elements.needsShoes.checked || form.elements.needsKit.checked); }));
     $$('[name=lodgeWanted]', form).forEach((i) => i.addEventListener('change', () => { $('#lodge-yes').hidden = i.value !== 'yes'; $('#lodge-no').hidden = i.value !== 'no'; }));
