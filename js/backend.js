@@ -11,7 +11,7 @@ import {
 } from './core.js';
 import { defaultSettings, sampleData } from './defaults.js';
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const HOUR = 3600000;
 
 export class ValidationError extends Error {
@@ -1066,6 +1066,7 @@ export class Backend {
       if (next.launchEvent.date && !/^\d{4}-\d{2}-\d{2}$/.test(next.launchEvent.date)) e.push('The launch event date must be a date.');
       if (next.launchEvent.dateConfirmed && !next.launchEvent.date) e.push('Set the launch event date before confirming it.');
       if (next.launchEvent.website && !/^https?:\/\//i.test(next.launchEvent.website)) e.push('The venue website must start with https://');
+      if (next.launchEvent.mapsUrl && !/^https:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.app\.goo\.gl\/|goo\.gl\/maps)/i.test(next.launchEvent.mapsUrl)) e.push('The Google Maps link must be a google.com/maps or maps.app.goo.gl link.');
       if (!(Number.isFinite(next.launchEvent.lat) && Number.isFinite(next.launchEvent.lng))) e.push('The launch venue map pin needs a latitude and longitude.');
       if (!(Number.isInteger(next.lodge.minNights) && next.lodge.minNights >= 1)) e.push('Lodge minimum stay must be a whole number of nights.');
       if (next.socks.confirmed && !(Number.isInteger(next.socks.price) && next.socks.price > 0)) e.push('Set a sock price before confirming it.');

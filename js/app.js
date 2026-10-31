@@ -264,7 +264,7 @@ async function launch(el) {
         <figure class="launch-map">
           <iframe title="Map of ${esc(L.venue)}" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&amp;layer=mapnik&amp;marker=${L.lat}%2C${L.lng}"></iframe>
           <figcaption class="small muted">${L.venueConfirmed ? esc(L.venueDetail || L.venue) + '.' : 'The pin shows the Hazeldean area in Pretoria East. The exact venue will be confirmed.'}
-            <a href="https://www.google.com/maps/search/?api=1&amp;query=${L.lat}%2C${L.lng}" rel="noopener" target="_blank">Open in Google Maps</a>${L.website ? ` · <a href="${esc(L.website)}" rel="noopener" target="_blank">Venue website</a>` : ''}</figcaption>
+            <a href="${esc(L.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${L.lat},${L.lng}`)}" rel="noopener" target="_blank">Open in Google Maps</a>${L.website ? ` · <a href="${esc(L.website)}" rel="noopener" target="_blank">Venue website</a>` : ''}</figcaption>
         </figure>
       </div>
       ${L.open ? `<form class="card" id="launch-form" novalidate>

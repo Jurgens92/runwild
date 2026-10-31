@@ -53,6 +53,8 @@ export function defaultSettings() {
       venueDetail: 'Silver Lakes Road extension, past Curro Hazeldean, Hazeldean, Pretoria East',
       venueConfirmed: true,
       website: 'https://www.hazeldeanvalley.co.za/',
+      // The venue's own Google Maps listing ("Hazeldean Trails"), supplied by the organisers.
+      mapsUrl: 'https://www.google.com/maps?ftid=0x1e9559637f0d1701:0xf0303bac0e7fbebd',
       // Hazeldean Valley Trails entrance, as given in public race-entry listings for the venue.
       lat: -25.7816,
       lng: 28.3871,
