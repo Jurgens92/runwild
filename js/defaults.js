@@ -1,3 +1,5 @@
+import { SOCK_SIZES } from './core.js';
+
 // Organiser-editable settings and the clearly labelled sample data used by the preview.
 // Anything marked confirmed:false is an open decision that must be settled before launch.
 
@@ -14,8 +16,13 @@ export function defaultSettings() {
       pickupFullAddress: '',
       pickupAddressConfirmed: false,
       contactEmail: '',
+      // Route details are still to be confirmed. They are shown publicly only once routeConfirmed is set.
+      startLocation: '',
+      finishLocation: '',
+      routeDescription: '',
+      routeConfirmed: false,
       proceedsText:
-        'Every R1,000 charitable entry goes towards establishing a running community around Melorane: ' +
+        'Every charitable entry goes towards establishing a running community around Melorane: ' +
         'shoes and kit for local runners, coaching and training support, and regular community runs after race day.',
     },
     pools: {
@@ -41,11 +48,13 @@ export function defaultSettings() {
     },
     inviteCodes: [
       { code: 'GROUP-PREVIEW', category: 'group_employee', maxUses: 100, uses: 0, note: 'Sample code' },
-      { code: 'MELORANE-PREVIEW', category: 'melorane_employee', maxUses: 100, uses: 0, note: 'Sample code' },
+      // Melorane employees have unlimited entries, so their code has no usage limit (maxUses: null).
+      { code: 'MELORANE-PREVIEW', category: 'melorane_employee', maxUses: null, uses: 0, note: 'Sample code' },
     ],
     lodge: {
       ratePerNight: 550000,
       depositPercent: 20,
+      minNights: 2,
       balanceDueDate: '2027-01-31',
       // Inventory below is SAMPLE data. Lodge capacity has not been supplied.
       inventoryConfirmed: false,
@@ -68,14 +77,21 @@ export function defaultSettings() {
       ],
       benefitsApproved: false,
     },
+    // Monetary donations only. ERP buys and distributes the shoes and kit itself.
     donations: {
+      enabled: true,
       target: 16,
-      shoePrice: null,
-      kitPrice: null,
-      financialEnabled: false,
-      conditionCriteria: ['New', 'Used – clean, soles intact, no tears'],
-      criteriaApproved: false,
-      dropOffText: '',
+      perRunner: 250000,
+      items: ['Running shoes', 'Shorts', 'Shirt', 'Socks', 'Cap'],
+      minAmount: 5000,
+    },
+    // Optional add-on at registration. The price is not set yet, so nothing is charged until it is.
+    socks: {
+      enabled: true,
+      label: 'RunWild running socks',
+      price: null,
+      confirmed: false,
+      maxPerEntry: 5,
     },
     payments: {
       providerName: '',
@@ -102,6 +118,7 @@ const FIRST = ['Lerato', 'Johan', 'Anika', 'Sipho', 'Megan', 'Tumi', 'Pieter', '
   'Marius', 'Palesa', 'Hanno', 'Refilwe', 'Willem', 'Dineo', 'Gerhard', 'Boitumelo', 'Annelie', 'Tshepo',
   'Kobus', 'Lindiwe', 'Ilse', 'Oratile', 'Retha', 'Kagiso', 'Jaco', 'Masego', 'Francois', 'Kelebogile'];
 const INIT = 'ABDGKLMNPRSTVZ';
+const SAMPLE_SHIRTS = ['M', 'L', 'S', 'M', 'XL', 'L', 'M', 'S', 'XXL', 'M', 'L', 'XS'];
 
 // Builds sample records directly. Every record carries sample:true and shows a "Sample" badge.
 export function sampleData(now, settings) {
@@ -121,6 +138,7 @@ export function sampleData(now, settings) {
       emergencyName: 'Sample contact', emergencyMobile: '0820000000', employer: category.endsWith('employee') ? (category === 'melorane_employee' ? 'Melorane' : 'Group company (sample)') : '',
       termsVersion: settings.terms.version, status, expiresAt: null, verification: category.endsWith('employee') ? 'verified' : 'n/a',
       assisted: false, lodge: null, buddy: null, kit: null, pickupAck: category === 'community', transportAck: false,
+      shirtSize: SAMPLE_SHIRTS[n % SAMPLE_SHIRTS.length], socks: n % 5 === 0 ? { qty: 1 + (n % 2), size: SOCK_SIZES[n % SOCK_SIZES.length] } : null,
       ...extra,
     };
     regs.push(r);
@@ -144,14 +162,20 @@ export function sampleData(now, settings) {
   const shirts = ['S', 'M', 'L', 'M', 'XL', 'S', 'M', 'XS', 'L', 'M', 'M', 'L', 'S'];
   for (let i = 0; i < 13; i++) {
     mk('community', i % 2 ? '5k' : '21k', 'reserved', {
-      expiresAt: null, holdReason: 'fee_unconfirmed', assisted: i % 4 === 0,
+      expiresAt: null, holdReason: 'fee_unconfirmed', assisted: i % 4 === 0, shirtSize: shirts[i],
       kit: { shoeSize: sizes[i], shoeSystem: 'UK', shirtSize: shirts[i], shortsSize: shirts[i], needsShoes: i % 3 !== 2, needsKit: i % 2 === 0 },
       buddy: i < 6 ? { optIn: true, status: i < 2 ? 'matched' : 'awaiting_match' } : { optIn: false },
     });
   }
 
-  // Melorane employees: outside both limited pools.
-  for (let i = 0; i < 6; i++) mk('melorane_employee', i % 2 ? '5k' : '21k', 'reserved', { expiresAt: null, holdReason: 'fee_unconfirmed' });
+  // Melorane employees: outside both limited pools. Some have asked for running kit.
+  for (let i = 0; i < 6; i++) {
+    const needs = i < 3;
+    mk('melorane_employee', i % 2 ? '5k' : '21k', 'reserved', {
+      expiresAt: null, holdReason: 'fee_unconfirmed', shirtSize: shirts[i + 2],
+      kit: needs ? { shoeSize: sizes[i + 3], shoeSystem: 'UK', shirtSize: shirts[i + 2], shortsSize: shirts[i + 2], needsShoes: true, needsKit: i !== 1 } : { shoeSize: '', shoeSystem: '', shirtSize: shirts[i + 2], shortsSize: '', needsShoes: false, needsKit: false },
+    });
+  }
 
   // Buddy volunteers among combined-pool runners.
   const volunteers = regs.filter((r) => r.category !== 'community' && r.status === 'confirmed').slice(0, 5);
@@ -180,10 +204,11 @@ export function sampleData(now, settings) {
     if (paid >= 2) payments.push({ id: 'sample-pay-lb-' + r.id, chargeId: bc.id, amount: total - deposit, method: 'eft', status: 'received', at: r.createdAt + 2 * 86400000, note: 'Sample payment', sample: true });
   };
   const combinedConfirmed = regs.filter((r) => (r.category === 'other' || r.category === 'group_employee') && r.status === 'confirmed');
-  lodgeFor(combinedConfirmed[2], '2027-04-16', '2027-04-17', 'confirmed', 1);
+  // Every stay is at least the two-night minimum.
+  lodgeFor(combinedConfirmed[2], '2027-04-15', '2027-04-17', 'confirmed', 1);
   lodgeFor(combinedConfirmed[3], '2027-04-16', '2027-04-18', 'paid_in_full', 2);
   lodgeFor(combinedConfirmed[5], '2027-04-15', '2027-04-17', 'confirmed', 1);
-  lodgeFor(combinedConfirmed[8], '2027-04-16', '2027-04-17', 'awaiting_deposit', 0);
+  lodgeFor(combinedConfirmed[8], '2027-04-16', '2027-04-18', 'awaiting_deposit', 0);
   regs.filter((r) => r.category !== 'community' && r.category !== 'melorane_employee' && !r.lodge).forEach((r) => { r.lodge = { wanted: false }; });
 
   // Water points: 1 sponsored, 3 temporarily reserved, 2, 4 and 5 open.
@@ -195,16 +220,23 @@ export function sampleData(now, settings) {
   charges.push({ id: 'sample-ch-sp-3', kind: 'sponsorship', ownerType: 'sponsorship', ownerId: 'sample-sp-3', label: 'Water Point 3 sponsorship', amount: settings.waterPoints.price, ref: 'RWM-WS003', createdAt: now - 3600000, sample: true });
   payments.push({ id: 'sample-pay-sp-1', chargeId: 'sample-ch-sp-1', amount: settings.waterPoints.price, method: 'eft', status: 'received', at: ts + 86400000, note: 'Sample payment', sample: true });
 
-  // Donations: pledges are not stock until received.
-  const pledges = [
-    { id: 'sample-p-1', sample: true, ref: 'RWM-DP001', donor: 'Sample donor A', email: 'donor@example.org', phone: '', type: 'shoes', quantity: 4, size: '8', sizeSystem: 'UK', shirtSize: '', shortsSize: '', condition: 'New', delivery: 'Drop-off', status: 'received', receivedQty: 4, createdAt: ts },
-    { id: 'sample-p-2', sample: true, ref: 'RWM-DP002', donor: 'Sample running club', email: 'club@example.org', phone: '', type: 'kit', quantity: 6, size: '', sizeSystem: '', shirtSize: 'M', shortsSize: 'M', condition: 'New', delivery: 'Collection requested', status: 'pledged', receivedQty: 0, createdAt: ts },
-    { id: 'sample-p-3', sample: true, ref: 'RWM-DP003', donor: 'Sample donor B', email: 'donorb@example.org', phone: '', type: 'shoes', quantity: 2, size: '7', sizeSystem: 'UK', shirtSize: '', shortsSize: '', condition: 'Used – clean, soles intact, no tears', delivery: 'Courier', status: 'pledged', receivedQty: 0, createdAt: ts },
-  ];
+  // Donations: money only. ERP buys shoes and kit with it, records the purchases as stock and allocates them.
+  const contributions = [];
+  const per = settings.donations.perRunner;
+  const gift = (i, donor, runners, amount, paid) => {
+    const c = { id: 'sample-dc-' + i, sample: true, ref: 'RWM-DF00' + i, donor, email: 'donor' + i + '@example.org', phone: '', runners, amount, status: paid ? 'paid' : 'awaiting_payment', createdAt: ts + i * 3600000 };
+    contributions.push(c);
+    const ch = { id: 'sample-ch-dc-' + i, kind: 'donation', ownerType: 'contribution', ownerId: c.id, label: runners ? 'Kit out ' + runners + ' runner' + (runners > 1 ? 's' : '') : 'Donation towards shoes and kit', amount, ref: c.ref, createdAt: c.createdAt, sample: true };
+    charges.push(ch);
+    if (paid) payments.push({ id: 'sample-pay-dc-' + i, chargeId: ch.id, amount, method: i % 2 ? 'provider' : 'eft', status: 'received', at: c.createdAt + 3600000, note: 'Sample payment', sample: true });
+  };
+  gift(1, 'Sample running club', 4, 4 * per, true);
+  gift(2, 'Sample donor A', null, 150000, true);
+  gift(3, 'Sample donor B', 2, 2 * per, false);
   const stock = [];
-  for (let i = 0; i < 4; i++) stock.push({ id: 'sample-st-' + i, sample: true, type: 'shoes', size: '8', sizeSystem: 'UK', shirtSize: '', shortsSize: '', source: 'pledge', sourceId: 'sample-p-1', status: 'in_stock', allocatedTo: null, receivedAt: ts + 86400000 });
+  for (let i = 0; i < 4; i++) stock.push({ id: 'sample-st-' + i, sample: true, type: 'shoes', size: '8', sizeSystem: 'UK', shirtSize: '', shortsSize: '', source: 'purchase', sourceId: 'Sample invoice INV-001', status: 'in_stock', allocatedTo: null, receivedAt: ts + 86400000 });
   const shoe8 = community.find((r) => r.kit.shoeSize === '8' && r.kit.needsShoes);
   if (shoe8) { stock[0].status = 'allocated'; stock[0].allocatedTo = shoe8.id; }
 
-  return { registrations: regs, charges, payments, lodgeRequests, sponsorships, pledges, stock, matches, contributions: [] };
+  return { registrations: regs, charges, payments, lodgeRequests, sponsorships, stock, matches, contributions };
 }

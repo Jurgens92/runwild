@@ -3,12 +3,22 @@
 
 export const TZ = 'Africa/Johannesburg';
 
+// kitOptions: the participant can ask ERP for running shoes and kit (bought with donated funds).
 export const CATEGORIES = {
-  group_employee: { label: 'Group employee', pool: 'combined', employee: true, emailRequired: true, adultOptions: true },
-  melorane_employee: { label: 'Melorane employee', pool: null, employee: true, emailRequired: false, adultOptions: false },
-  other: { label: 'Other participant', pool: 'combined', employee: false, emailRequired: true, adultOptions: true },
-  community: { label: 'Community member', pool: 'community', employee: false, emailRequired: false, adultOptions: false },
+  group_employee: { label: 'Group employee', pool: 'combined', employee: true, emailRequired: true, adultOptions: true, kitOptions: false },
+  melorane_employee: { label: 'Melorane employee', pool: null, employee: true, emailRequired: false, adultOptions: false, kitOptions: true },
+  other: { label: 'Other participant', pool: 'combined', employee: false, emailRequired: true, adultOptions: true, kitOptions: false },
+  community: { label: 'Community member', pool: 'community', employee: false, emailRequired: false, adultOptions: false, kitOptions: true },
 };
+
+// Every entry includes a RunWild running shirt.
+export const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+export const SOCK_SIZES = ['S (UK 3–5)', 'M (UK 6–8)', 'L (UK 9–11)', 'XL (UK 12+)'];
+
+// An invitation code with maxUses null has no usage limit.
+export function codeHasUses(code) {
+  return !!code && (code.maxUses === null || code.maxUses === undefined || code.uses < code.maxUses);
+}
 
 export const POOLS = {
   combined: { label: 'Group employees + other participants' },

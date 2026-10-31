@@ -22,7 +22,7 @@ function person(category, distance = '21k', extra = {}) {
     clientRequestId: 'req-' + n + '-' + Math.random().toString(36).slice(2),
     category, distance, fullName: 'Test Person ' + n, mobile: '082' + String(1000000 + n).slice(-7),
     email: 'p' + n + '@example.org', emergencyName: 'Contact', emergencyMobile: '0830000000',
-    termsAccepted: true, privacyAck: true,
+    termsAccepted: true, privacyAck: true, shirtSize: 'M',
   };
   if (category === 'group_employee' || category === 'other') Object.assign(base, { lodge: { wanted: false }, transportAck: true, buddy: { optIn: false } });
   if (category === 'group_employee') Object.assign(base, { employer: 'Group Co', inviteCode: 'GROUP-PREVIEW' });
@@ -169,13 +169,18 @@ export const scenarios = [
     },
   },
   {
-    name: 'One lodge night: R5,500 total, R1,100 deposit, R4,400 balance',
+    name: 'Canvas Lodge refuses a one-night booking (minimum two nights)',
     async run() {
-      const q = lodgeQuote({ nights: 1, ratePerNight: 550000, depositPercent: 20 });
-      eq(q.total, 550000, 'total'); eq(q.deposit, 110000, 'deposit'); eq(q.balance, 440000, 'balance');
       const { be } = setup();
-      const r = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-16', departure: '2027-04-17' }, transportAck: false }));
-      eq(r.lodge.total, 550000, 'stored total'); eq(r.lodge.deposit, 110000, 'stored deposit'); eq(r.lodge.balance, 440000, 'stored balance');
+      let err = null;
+      try { await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-16', departure: '2027-04-17' }, transportAck: false })); } catch (e) { err = e; }
+      assert(err && err.fields && /minimum of 2 nights/.test(err.fields.lodgeDates), 'one-night stay should be refused');
+      eq(await be._read((s) => s.registrations.length), 0, 'nothing registered');
+      const r = await be.submitRegistration(person('other'));
+      const mob = await be._read((s) => s.registrations[0].mobile);
+      let later = null;
+      try { await be.requestLodgeForEntry(r.ref, mob, '2027-04-15', '2027-04-16'); } catch (e) { later = e; }
+      assert(later && /minimum of 2 nights/.test(later.message), 'one night refused from My entry too');
     },
   },
   {
@@ -183,23 +188,26 @@ export const scenarios = [
     async run() {
       const q = lodgeQuote({ nights: 2, ratePerNight: 550000, depositPercent: 20 });
       eq(q.total, 1100000, 'total'); eq(q.deposit, 220000, 'deposit'); eq(q.balance, 880000, 'balance');
+      const { be } = setup();
+      const r = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-15', departure: '2027-04-17' }, transportAck: false }));
+      eq(r.lodge.total, 1100000, 'stored total'); eq(r.lodge.deposit, 220000, 'stored deposit'); eq(r.lodge.balance, 880000, 'stored balance');
     },
   },
   {
     name: 'Entry fees stay separate from accommodation',
     async run() {
       const { be } = setup();
-      const r = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-16', departure: '2027-04-17' }, transportAck: false }));
+      const r = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-16', departure: '2027-04-18' }, transportAck: false }));
       const kinds = r.charges.map((c) => c.kind + ':' + c.amount).sort();
-      eq(kinds.join(','), 'entry:100000,lodge_balance:440000,lodge_deposit:110000', 'separate charges');
-      const msg = { eventId: 'evt-dep', chargeRef: r.ref + '-LD', amount: 110000, status: 'paid' };
+      eq(kinds.join(','), 'entry:100000,lodge_balance:880000,lodge_deposit:220000', 'separate charges');
+      const msg = { eventId: 'evt-dep', chargeRef: r.ref + '-LD', amount: 220000, status: 'paid' };
       msg.signature = await be.previewSignNotification(msg);
       await be.providerNotification(msg);
       const after = await be.myEntry(r.ref, await be._read((s) => s.registrations[0].mobile));
       eq(after.charges.find((c) => c.kind === 'entry').outstanding, 100000, 'entry still outstanding after deposit');
       eq(after.lodge.status, 'confirmed', 'lodge confirmed by deposit');
       eq(after.charges.find((c) => c.kind === 'lodge_deposit').outstanding, 0, 'deposit settled');
-      eq(after.charges.find((c) => c.kind === 'lodge_balance').outstanding, 440000, 'balance still outstanding');
+      eq(after.charges.find((c) => c.kind === 'lodge_balance').outstanding, 880000, 'balance still outstanding');
       eq(after.status, 'reserved', 'race entry not confirmed by a lodge deposit');
     },
   },
@@ -216,17 +224,73 @@ export const scenarios = [
     },
   },
   {
-    name: 'Donation pledges remain separate from received donations',
+    name: 'Donations are money only: R2,500 per runner, counted once received',
     async run() {
       const { be } = setup();
-      await be.submitPledge({ donor: 'Donor', email: 'd@example.org', type: 'shoes', quantity: 5, size: '8', sizeSystem: 'UK', condition: 'New', delivery: 'Drop-off' });
+      assert(typeof be.submitPledge !== 'function', 'physical donation pledges are no longer accepted');
+      const c = await be.submitContribution({ mode: 'runners', runners: 3, donor: 'Donor', email: 'd@example.org' });
+      eq(c.amount, 750000, '3 runners × R2,500');
       let p = (await be.publicSummary()).donations.progress;
-      eq(p.shoesPledged, 5, 'pledged'); eq(p.shoesInHand, 0, 'nothing received yet');
-      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
-      const id = await be._read((s) => s.pledges[0].id);
-      await be.organiserAction(tok, 'receivePledge', { id, quantity: 2 });
+      eq(p.raised, 0, 'nothing counted before payment'); eq(p.runnersFunded, 0, 'no runner funded yet');
+      const msg = { eventId: 'evt-don', chargeRef: c.charge.ref, amount: 750000, status: 'paid' };
+      msg.signature = await be.previewSignNotification(msg);
+      await be.providerNotification(msg);
+      const g = await be.submitContribution({ mode: 'amount', amount: '1000', donor: 'Other donor', email: 'o@example.org' });
+      eq(g.amount, 100000, 'any amount');
       p = (await be.publicSummary()).donations.progress;
-      eq(p.shoesPledged, 3, 'still pledged'); eq(p.shoesInHand, 2, 'received');
+      eq(p.raised, 750000, 'raised'); eq(p.runnersFunded, 3, 'runners funded');
+      let small = false;
+      try { await be.submitContribution({ mode: 'amount', amount: '10', donor: 'Tiny', email: 't@example.org' }); } catch { small = true; }
+      assert(small, 'donations below the minimum are refused');
+    },
+  },
+  {
+    name: 'Every entry, including group entries, needs a RunWild shirt size',
+    async run() {
+      const { be } = setup();
+      for (const cat of ['group_employee', 'other', 'community', 'melorane_employee']) {
+        let err = null;
+        try { await be.submitRegistration(person(cat, '21k', { shirtSize: '' })); } catch (e) { err = e; }
+        assert(err && err.fields && err.fields.shirtSize, cat + ' without a shirt size should be refused');
+      }
+      const r = await be.submitRegistration(person('group_employee', '5k', { shirtSize: 'XL' }));
+      eq(r.shirtSize, 'XL', 'shirt size stored');
+      eq(r.charges.length, 1, 'shirt is included in the entry, not charged separately');
+    },
+  },
+  {
+    name: 'Socks are a separate add-on, charged only once the price is confirmed',
+    async run() {
+      const { be } = setup();
+      const a = await be.submitRegistration(person('other', '21k', { socks: { qty: 2, size: 'M (UK 6–8)' } }));
+      eq(a.socks.qty, 2, 'order recorded');
+      assert(!a.charges.some((c) => c.kind === 'socks'), 'no sock charge while the price is unconfirmed');
+      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      await be.updateSettings(tok, { socks: { price: 8000, confirmed: true } });
+      eq(await be.organiserAction(tok, 'issueSockCharges'), 1, 'held order now payable');
+      const mob = await be._read((s) => s.registrations[0].mobile);
+      const e = await be.myEntry(a.ref, mob);
+      eq(e.charges.find((c) => c.kind === 'socks').amount, 16000, '2 pairs × R80');
+      eq(e.charges.find((c) => c.kind === 'entry').amount, 100000, 'entry fee unchanged');
+      const b = await be.submitRegistration(person('community'));
+      const bm = await be._read((s) => s.registrations.find((x) => x.ref === b.ref).mobile);
+      const after = await be.addSocksForEntry(b.ref, bm, 1, 'S (UK 3–5)');
+      eq(after.charges.find((c) => c.kind === 'socks').amount, 8000, 'socks added later from My entry');
+    },
+  },
+  {
+    name: 'Melorane employees: unlimited entries with one code, and can ask for kit with sizes',
+    async run() {
+      const { be } = setup();
+      const regs = await fill(be, 'melorane_employee', 150);
+      assert(regs.every((r) => r.status === 'reserved' && r.verification === 'verified'), 'code works for every Melorane employee');
+      let err = null;
+      try { await be.submitRegistration(person('melorane_employee', '5k', { kit: { needsShoes: true, needsKit: true } })); } catch (e) { err = e; }
+      assert(err && err.fields.shoeSize && err.fields.shortsSize, 'sizes required for the kit asked for');
+      const k = await be.submitRegistration(person('melorane_employee', '5k', { shirtSize: 'L', kit: { needsShoes: true, needsKit: true, shoeSize: '9', shoeSystem: 'UK', shortsSize: 'L' } }));
+      eq(k.kit.shirtSize, 'L', 'kit shirt follows the entry shirt size');
+      const p = (await be.publicSummary()).donations.progress;
+      eq(p.runnersNeedingKit, 1, 'counted among runners needing kit');
     },
   },
   {

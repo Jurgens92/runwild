@@ -1,11 +1,11 @@
 import { api, esc, $, $$, toast, statusPill, sampleBadge, rand, formatDate, formatDateTime, tbc } from './ui.js';
-import { CATEGORIES, DISTANCES, POOLS, isReservationLive } from './core.js';
+import { CATEGORIES, DISTANCES, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive } from './core.js';
 import { AuthError } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
 
 const TABS = [
   ['overview', 'Overview'], ['participants', 'Participants'], ['verify', 'Employee verification'], ['waitlist', 'Waitlist & cancelled'],
-  ['payments', 'Payments'], ['lodge', 'Canvas Lodge'], ['water', 'Water points'], ['donations', 'Shoes & kit'],
+  ['payments', 'Payments'], ['shirts', 'Shirts & socks'], ['lodge', 'Canvas Lodge'], ['water', 'Water points'], ['donations', 'Donations & kit'],
   ['buddies', 'Run Buddy'], ['pickup', 'Pickup list'], ['messages', 'Messages'], ['audit', 'Audit trail'],
   ['settings', 'Settings'], ['checklist', 'Launch checklist'], ['tests', 'Verification tests'],
 ];
@@ -119,10 +119,12 @@ function participantDialog(D, r) {
       <tr><th>Status</th><td>${regStatus(D, r)}</td></tr>
       <tr><th>Category</th><td>${esc(catLabel(r.category))} ${r.verification !== 'n/a' ? '· ' + statusPill(r.verification) : ''} ${r.verifiedBy ? '<span class="small muted">by ' + esc(r.verifiedBy) + '</span>' : ''}</td></tr>
       <tr><th>Distance</th><td>${esc(DISTANCES[r.distance])}</td></tr>
+      <tr><th>RunWild shirt</th><td>${esc(r.shirtSize || '—')}</td></tr>
+      <tr><th>Socks</th><td>${r.socks ? r.socks.qty + ' × ' + esc(r.socks.size) : 'None'}</td></tr>
       <tr><th>Mobile / email</th><td>${esc(r.mobile)}<br>${esc(r.email || '—')}</td></tr>
       <tr><th>Emergency contact</th><td>${esc(r.emergencyName)} · ${esc(r.emergencyMobile)}</td></tr>
       ${r.employer ? `<tr><th>Employer</th><td>${esc(r.employer)}</td></tr>` : ''}
-      ${k ? `<tr><th>Sizes</th><td>Shoe ${esc(k.shoeSize)} ${esc(k.shoeSystem)}, shirt ${esc(k.shirtSize)}, shorts ${esc(k.shortsSize)}<br>Needs: ${[k.needsShoes && 'shoes', k.needsKit && 'kit'].filter(Boolean).join(', ') || 'none'}</td></tr>` : ''}
+      ${k ? `<tr><th>Kit sizes</th><td>${k.shoeSize ? 'Shoe ' + esc(k.shoeSize) + ' ' + esc(k.shoeSystem) + ', ' : ''}${k.shortsSize ? 'shorts ' + esc(k.shortsSize) : ''}<br>Needs: ${[k.needsShoes && 'shoes', k.needsKit && 'kit'].filter(Boolean).join(', ') || 'none'}</td></tr>` : ''}
       ${r.category === 'community' ? `<tr><th>Pickup acknowledged</th><td>${r.pickupAck ? 'Yes' : 'No'}</td></tr>` : ''}
       ${CATEGORIES[r.category].adultOptions ? `<tr><th>Lodge</th><td>${lr ? statusPill(lr.status) + ' ' + formatDate(lr.arrival) + ' – ' + formatDate(lr.departure) : r.transportAck ? 'No – transport acknowledged' : 'No'}</td></tr>` : ''}
       <tr><th>Run Buddy</th><td>${r.buddy && r.buddy.optIn ? statusPill(r.buddy.status) : 'No'}</td></tr>
@@ -162,7 +164,7 @@ const VIEWS = {
       return `<tr><td>${esc(catLabel(c))}</td>${['21k', '5k'].map((dd) => `<td class="num">${n(dd, ['confirmed'])}</td><td class="num">${n(dd, ['reserved'])}</td>`).join('')}<td class="num">${rs.filter((r) => r.status === 'waitlisted').length}</td><td class="num">${rs.filter((r) => r.status === 'draft').length}</td></tr>`;
     });
     const sum = (kinds) => D.chargeViews.filter((c) => kinds.includes(c.kind)).reduce((a, c) => ({ due: a.due + c.amount, paid: a.paid + c.paid, out: a.out + c.outstanding }), { due: 0, paid: 0, out: 0 });
-    const money = [['Entry fees', ['entry']], ['Lodge deposits', ['lodge_deposit']], ['Lodge balances', ['lodge_balance']], ['Water point sponsorships', ['sponsorship']], ['Financial donations', ['donation']]]
+    const money = [['Entry fees', ['entry']], ['Sock add-ons', ['socks']], ['Lodge deposits', ['lodge_deposit']], ['Lodge balances', ['lodge_balance']], ['Water point sponsorships', ['sponsorship']], ['Financial donations', ['donation']]]
       .map(([l, k]) => { const s = sum(k); return `<tr><td>${l}</td><td class="num">${rand(s.due)}</td><td class="num">${rand(s.paid)}</td><td class="num">${rand(s.out)}</td></tr>`; });
     const att = [
       ...regs.filter((r) => r.attention).map((r) => ['registration', r.id, r.ref, r.attention]),
@@ -174,7 +176,7 @@ const VIEWS = {
       <div class="kpis">
         <div class="kpi"><span class="label">${esc(POOLS.combined.label)}</span><div class="stat">${u.combined.used} / ${u.combined.limit}</div><div class="small">${u.combined.remaining} remaining · ${u.combined.confirmed} confirmed, ${u.combined.reserved} reserved</div></div>
         <div class="kpi"><span class="label">Community members</span><div class="stat">${u.community.used} / ${u.community.limit}</div><div class="small">${u.community.remaining} remaining · ${u.community.confirmed} confirmed, ${u.community.reserved} reserved</div></div>
-        <div class="kpi"><span class="label">Melorane employees</span><div class="stat">${mel.length}</div><div class="small">no limit · outside both pools</div></div>
+        <div class="kpi"><span class="label">Melorane employees</span><div class="stat">${mel.length}</div><div class="small">unlimited · outside both pools</div></div>
         <div class="kpi"><span class="label">Waitlisted</span><div class="stat">${u.combined.waitlisted + u.community.waitlisted}</div><div class="small">${u.combined.waitlisted} combined · ${u.community.waitlisted} community</div></div>
         <div class="kpi"><span class="label">Awaiting verification</span><div class="stat">${regs.filter((r) => r.status === 'draft').length}</div><div class="small">employee entries, no place held</div></div>
       </div>
@@ -212,8 +214,8 @@ const VIEWS = {
       $$('[data-cancel]').forEach((b) => b.addEventListener('click', () => { const reason = prompt('Reason for cancelling'); if (reason) act('cancelRegistration', { regId: b.dataset.cancel, reason }, 'Entry cancelled'); }));
     };
     ['q', 'fc', 'fd', 'fs'].forEach((id) => $('#' + id).addEventListener('input', render));
-    $('#csv').addEventListener('click', () => csvDownload('participants', ['Reference', 'Name', 'Category', 'Distance', 'Status', 'Verification', 'Mobile', 'Email', 'Emergency name', 'Emergency number', 'Employer', 'Entry billed', 'Entry paid', 'Entry outstanding', 'Registered', 'Assisted', 'Sample'],
-      D.registrations.map((r) => { const c = entryCharge(D, r); return [r.ref, r.fullName, catLabel(r.category), DISTANCES[r.distance], r.status, r.verification, r.mobile, r.email, r.emergencyName, r.emergencyMobile, r.employer, c ? c.amount / 100 : '', c ? c.paid / 100 : '', c ? c.outstanding / 100 : '', formatDateTime(r.createdAt), r.assisted ? 'yes' : '', r.sample ? 'yes' : '']; })));
+    $('#csv').addEventListener('click', () => csvDownload('participants', ['Reference', 'Name', 'Category', 'Distance', 'Status', 'Verification', 'Mobile', 'Email', 'Emergency name', 'Emergency number', 'Employer', 'Shirt size', 'Socks pairs', 'Sock size', 'Needs shoes', 'Needs kit', 'Shoe size', 'Shorts size', 'Entry billed', 'Entry paid', 'Entry outstanding', 'Registered', 'Assisted', 'Sample'],
+      D.registrations.map((r) => { const c = entryCharge(D, r); const k = r.kit || {}; return [r.ref, r.fullName, catLabel(r.category), DISTANCES[r.distance], r.status, r.verification, r.mobile, r.email, r.emergencyName, r.emergencyMobile, r.employer, r.shirtSize || '', r.socks ? r.socks.qty : '', r.socks ? r.socks.size : '', k.needsShoes ? 'yes' : '', k.needsKit ? 'yes' : '', k.needsShoes ? (k.shoeSize + ' ' + k.shoeSystem) : '', k.needsKit ? k.shortsSize : '', c ? c.amount / 100 : '', c ? c.paid / 100 : '', c ? c.outstanding / 100 : '', formatDateTime(r.createdAt), r.assisted ? 'yes' : '', r.sample ? 'yes' : '']; })));
     render();
   },
 
@@ -227,7 +229,7 @@ const VIEWS = {
       <h3>Recently verified</h3>
       ${table(['Ref', 'Name', 'Category', 'Verification', 'By'], recent.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${statusPill(r.verification)}</td><td>${esc(r.verifiedBy || '')}</td></tr>`))}
       <h3>Invitation codes</h3>
-      ${table(['Code', 'Category', '#Used', '#Limit'], D.settings.inviteCodes.map((c) => `<tr><td class="ref">${esc(c.code)}</td><td>${esc(catLabel(c.category))}</td><td class="num">${c.uses}</td><td class="num">${c.maxUses}</td></tr>`))}
+      ${table(['Code', 'Category', '#Used', '#Limit'], D.settings.inviteCodes.map((c) => `<tr><td class="ref">${esc(c.code)}</td><td>${esc(catLabel(c.category))}</td><td class="num">${c.uses}</td><td class="num">${c.maxUses === null || c.maxUses === undefined ? 'Unlimited' : c.maxUses}</td></tr>`))}
       <p class="small muted">Edit codes under Settings.</p>`;
     $$('[data-ok]', m).forEach((b) => b.addEventListener('click', () => act('verifyEmployee', { regId: b.dataset.ok, approve: true }, 'Verified')));
     $$('[data-other]', m).forEach((b) => b.addEventListener('click', () => act('verifyEmployee', { regId: b.dataset.other, reassignTo: 'other' }, 'Moved to Other participants')));
@@ -258,7 +260,7 @@ const VIEWS = {
       const k = D.contributions.find((x) => x.id === c.ownerId); return k ? k.donor : '';
     };
     m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Payments & reconciliation</h2><div class="filters">
-      <select id="fk"><option value="">All streams</option><option value="entry">Entry fees</option><option value="lodge_deposit">Lodge deposits</option><option value="lodge_balance">Lodge balances</option><option value="sponsorship">Sponsorships</option><option value="donation">Donations</option></select>
+      <select id="fk"><option value="">All streams</option><option value="entry">Entry fees</option><option value="socks">Sock add-ons</option><option value="lodge_deposit">Lodge deposits</option><option value="lodge_balance">Lodge balances</option><option value="sponsorship">Sponsorships</option><option value="donation">Donations</option></select>
       <label class="check small"><input type="checkbox" id="fo" checked> Outstanding only</label>
       <button class="btn small" id="csv">CSV</button></div></div>
       <p class="small muted">Payments are marked received only by a verified provider notification or by recording an EFT you can see on the bank statement here.</p>
@@ -318,56 +320,83 @@ const VIEWS = {
     $('#csv').addEventListener('click', () => csvDownload('water-points', ['Reference', 'Point', 'Sponsor', 'Contact', 'Email', 'Phone', 'Website', 'Billing', 'Display consent', 'Status'], D.sponsorships.map((s) => [s.ref, s.point, s.name, s.contactPerson, s.email, s.phone, s.website, s.billing, s.displayConsent ? 'yes' : 'no', s.status])));
   },
 
+  shirts(m, D) {
+    // Shirts are ordered for every entry that holds or may get a place (not cancelled).
+    const active = D.registrations.filter((r) => r.status !== 'cancelled');
+    const groups = [['Confirmed', (r) => r.status === 'confirmed'], ['Reserved', (r) => r.status === 'reserved'], ['Waitlisted or awaiting verification', (r) => r.status === 'waitlisted' || r.status === 'draft']];
+    const shirtRows = [...SHIRT_SIZES, ''].map((sz) => {
+      const rs = active.filter((r) => (r.shirtSize || '') === sz);
+      if (!sz && !rs.length) return '';
+      return `<tr><td><strong>${sz || 'Not given'}</strong></td>${groups.map(([, f]) => `<td class="num">${rs.filter(f).length}</td>`).join('')}<td class="num"><strong>${rs.length}</strong></td></tr>`;
+    }).filter(Boolean);
+    const sockOrders = active.filter((r) => r.socks && r.socks.qty);
+    const sockRows = SOCK_SIZES.map((sz) => { const os = sockOrders.filter((r) => r.socks.size === sz); return `<tr><td>${esc(sz)}</td><td class="num">${os.length}</td><td class="num"><strong>${os.reduce((a, r) => a + r.socks.qty, 0)}</strong></td></tr>`; });
+    const so = D.settings.socks;
+    const unbilled = sockOrders.filter((r) => ['reserved', 'confirmed'].includes(r.status) && !D.chargeViews.some((c) => c.ownerId === r.id && c.kind === 'socks'));
+    m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Shirts & socks</h2><button class="btn small" id="csv">CSV</button></div>
+      <p class="muted">Every entry includes a RunWild running shirt. Use these totals for the shirt order. Cancelled entries are excluded.</p>
+      <h3>RunWild shirts by size</h3>
+      <div class="table-wrap"><table class="data"><thead><tr><th>Size</th>${groups.map(([l]) => `<th class="num">${l}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>${shirtRows.join('')}</tbody></table></div>
+      <h3>Sock add-on orders</h3>
+      <p class="small">${so.confirmed && so.price ? 'Price ' + rand(so.price) + ' per pair.' : tbc('Price not confirmed') + ' Orders are recorded but nothing is payable yet. Set the price under Settings.'}</p>
+      ${table(['Size', '#Orders', '#Pairs'], sockRows)}
+      ${so.confirmed && so.price && unbilled.length ? `<div class="btn-row"><button class="btn small" id="issue-socks">Issue payment requests for ${unbilled.length} sock order${unbilled.length > 1 ? 's' : ''}</button></div>` : ''}`;
+    $('#issue-socks', m)?.addEventListener('click', () => act('issueSockCharges', {}, 'Sock payment requests issued'));
+    $('#csv').addEventListener('click', () => csvDownload('shirts-and-socks', ['Reference', 'Name', 'Category', 'Status', 'Shirt size', 'Socks pairs', 'Sock size'], active.map((r) => [r.ref, r.fullName, catLabel(r.category), r.status, r.shirtSize || '', r.socks ? r.socks.qty : '', r.socks ? r.socks.size : ''])));
+  },
+
   donations(m, D) {
-    const comm = D.registrations.filter((r) => r.category === 'community' && r.status !== 'cancelled' && r.kit);
+    const needy = D.registrations.filter((r) => CATEGORIES[r.category].kitOptions && r.status !== 'cancelled' && r.kit);
     const allocatedTo = (id, type) => D.stock.find((x) => x.allocatedTo === id && x.type === type);
     const shoeKey = (sz, sys) => sz + ' ' + sys;
     const needs = {};
-    for (const r of comm) {
+    for (const r of needy) {
       if (r.kit.needsShoes) { const k = 'Shoes ' + shoeKey(r.kit.shoeSize, r.kit.shoeSystem); needs[k] = needs[k] || { req: 0, alloc: 0 }; needs[k].req++; if (allocatedTo(r.id, 'shoes')) needs[k].alloc++; }
-      if (r.kit.needsKit) { const k = 'Kit vest ' + r.kit.shirtSize + ' / shorts ' + r.kit.shortsSize; needs[k] = needs[k] || { req: 0, alloc: 0 }; needs[k].req++; if (allocatedTo(r.id, 'kit')) needs[k].alloc++; }
+      if (r.kit.needsKit) { const k = 'Kit shirt ' + r.kit.shirtSize + ' / shorts ' + r.kit.shortsSize; needs[k] = needs[k] || { req: 0, alloc: 0 }; needs[k].req++; if (allocatedTo(r.id, 'kit')) needs[k].alloc++; }
     }
-    const inStock = (label) => D.stock.filter((s) => s.status === 'in_stock' && (s.type === 'shoes' ? 'Shoes ' + shoeKey(s.size, s.sizeSystem) : 'Kit vest ' + s.shirtSize + ' / shorts ' + s.shortsSize) === label).length;
+    const inStock = (label) => D.stock.filter((s) => s.status === 'in_stock' && (s.type === 'shoes' ? 'Shoes ' + shoeKey(s.size, s.sizeSystem) : 'Kit shirt ' + s.shirtSize + ' / shorts ' + s.shortsSize) === label).length;
     const P = D.donationProgress;
-    m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Shoes & kit</h2><button class="btn small" id="csv">CSV</button></div>
+    const per = D.settings.donations.perRunner;
+    const chOf = (c) => D.chargeViews.find((x) => x.ownerId === c.id);
+    m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Donations & kit</h2><button class="btn small" id="csv">CSV</button></div>
+      <p class="muted">Monetary donations only. ERP buys shoes and kit (budget ${rand(per)} per runner: ${esc(D.settings.donations.items.join(', ').toLowerCase())}), records each purchase as stock below, and allocates it to the participants who asked.</p>
       <div class="kpis">
-        <div class="kpi"><span class="label">Shoes</span><div class="small">requested ${P.shoesRequested} · pledged (not yet received) ${P.shoesPledged} · in hand ${P.shoesInHand} · allocated ${P.shoesAllocated}</div></div>
-        <div class="kpi"><span class="label">Kit sets</span><div class="small">requested ${P.kitRequested} · pledged (not yet received) ${P.kitPledged} · in hand ${P.kitInHand} · allocated ${P.kitAllocated}</div></div>
+        <div class="kpi"><span class="label">Raised (received)</span><div class="stat">${rand(P.raised)}</div><div class="small">${P.runnersFunded} runner${P.runnersFunded === 1 ? '' : 's'} funded at ${rand(per)}</div></div>
+        <div class="kpi"><span class="label">Asked for kit</span><div class="stat">${P.runnersNeedingKit}</div><div class="small">community members and Melorane employees · budget needed ${rand(P.runnersNeedingKit * per)}</div></div>
+        <div class="kpi"><span class="label">Shoes</span><div class="small">requested ${P.shoesRequested} · bought ${P.shoesInHand} · allocated ${P.shoesAllocated}</div></div>
+        <div class="kpi"><span class="label">Kit sets</span><div class="small">requested ${P.kitRequested} · bought ${P.kitInHand} · allocated ${P.kitAllocated}</div></div>
       </div>
+      <h3>Donations</h3>
+      ${table(['Ref', 'Donor', 'For', '#Amount', '#Received', 'Status'], D.contributions.map((c) => { const ch = chOf(c); return `<tr><td class="ref">${esc(c.ref)}</td><td>${esc(c.donor)}${sampleBadge(c)}<br><span class="small">${esc(c.email || c.phone || '')}</span></td><td>${c.runners ? c.runners + ' runner' + (c.runners > 1 ? 's' : '') : 'General'}</td><td class="num">${rand(c.amount)}</td><td class="num">${ch ? rand(ch.paid) : '—'}</td><td>${statusPill(c.status)}</td></tr>`; }), 'No donations yet.')}
+      <p class="small muted">Record EFT donations under Payments, using the donation reference.</p>
       <h3>Unmet needs by size</h3>
-      ${table(['Item and size', '#Requested', '#Allocated', '#Unmet', '#Matching stock'], Object.entries(needs).sort().map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.req}</td><td class="num">${v.alloc}</td><td class="num"><strong>${v.req - v.alloc}</strong></td><td class="num">${inStock(k)}</td></tr>`), 'No community participant has asked for shoes or kit.')}
-      <h3>Pledges</h3>
-      ${table(['Ref', 'Donor', 'Item', '#Qty', '#Received', 'Condition', 'Delivery', 'Status', ''], D.pledges.map((p) => `<tr><td class="ref">${esc(p.ref)}</td><td>${esc(p.donor)}${sampleBadge(p)}<br><span class="small">${esc(p.email || p.phone)}</span></td><td>${p.type === 'shoes' ? 'Shoes ' + esc(p.size + ' ' + p.sizeSystem) : 'Kit ' + esc(p.shirtSize + '/' + p.shortsSize)}</td><td class="num">${p.quantity}</td><td class="num">${p.receivedQty}</td><td class="small">${esc(p.condition)}</td><td class="small">${esc(p.delivery)}</td><td>${statusPill(p.status)}</td>
-        <td>${['pledged', 'partially_received'].includes(p.status) ? `<div class="btn-row"><button class="btn small" data-rcv="${p.id}" data-max="${p.quantity - p.receivedQty}">Receive</button><button class="btn small plain" data-close="${p.id}">Close</button></div>` : ''}</td></tr>`))}
-      <h3>Stock (received and purchased)</h3>
-      ${table(['Item', 'Source', 'Status', 'Allocated to', ''], D.stock.map((s) => {
+      ${table(['Item and size', '#Requested', '#Allocated', '#Unmet', '#Matching stock'], Object.entries(needs).sort().map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.req}</td><td class="num">${v.alloc}</td><td class="num"><strong>${v.req - v.alloc}</strong></td><td class="num">${inStock(k)}</td></tr>`), 'Nobody has asked for shoes or kit.')}
+      <h3>Stock (bought by ERP)</h3>
+      ${table(['Item', 'Purchase note', 'Status', 'Allocated to', ''], D.stock.map((s) => {
         const r = s.allocatedTo && regById(D, s.allocatedTo);
-        const opts = comm.filter((c) => (s.type === 'shoes' ? c.kit.needsShoes : c.kit.needsKit) && !allocatedTo(c.id, s.type))
+        const opts = needy.filter((c) => (s.type === 'shoes' ? c.kit.needsShoes : c.kit.needsKit) && !allocatedTo(c.id, s.type))
           .map((c) => `<option value="${c.id}">${esc(c.ref)} ${esc(c.fullName)} – ${s.type === 'shoes' ? esc(c.kit.shoeSize + ' ' + c.kit.shoeSystem) : esc(c.kit.shirtSize + '/' + c.kit.shortsSize)}</option>`).join('');
-        return `<tr><td>${s.type === 'shoes' ? 'Shoes ' + esc(s.size + ' ' + s.sizeSystem) : 'Kit ' + esc(s.shirtSize + '/' + s.shortsSize)}${sampleBadge(s)}</td><td>${s.source === 'pledge' ? 'Donated' : 'Purchased'}</td><td>${statusPill(s.status)}</td><td>${r ? esc(r.fullName) + ' <span class="ref small">' + esc(r.ref) + '</span>' : ''}</td>
+        return `<tr><td>${s.type === 'shoes' ? 'Shoes ' + esc(s.size + ' ' + s.sizeSystem) : 'Kit ' + esc(s.shirtSize + '/' + s.shortsSize)}${sampleBadge(s)}</td><td class="small">${esc(s.sourceId || '')}</td><td>${statusPill(s.status)}</td><td>${r ? esc(r.fullName) + ' <span class="ref small">' + esc(r.ref) + '</span>' : ''}</td>
           <td>${s.status === 'in_stock' ? `<div class="btn-row"><select data-sel="${s.id}" style="min-height:34px;padding:4px"><option value="">Allocate to…</option>${opts}</select><button class="btn small" data-alloc="${s.id}">Allocate</button></div>` : s.status === 'allocated' ? `<div class="btn-row"><button class="btn small" data-dlv="${s.id}">Mark delivered</button><button class="btn small plain" data-un="${s.id}">Unallocate</button></div>` : ''}</td></tr>`;
-      }), 'Nothing received yet. Pledges become stock only when received.')}
+      }), 'Nothing bought yet. Record purchases below.')}
       <h3>Record a purchase</h3>
       <form id="buy" class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;align-items:end">
-        <div><label>Item</label><select name="type"><option value="shoes">Shoes</option><option value="kit">Kit</option></select></div>
+        <div><label>Item</label><select name="type"><option value="shoes">Shoes</option><option value="kit">Kit (shorts, socks, cap)</option></select></div>
         <div><label>Qty</label><input name="quantity" type="number" min="1" value="1"></div>
         <div><label>Shoe size</label><input name="size" type="text"></div>
         <div><label>System</label><select name="sizeSystem"><option>UK</option><option>EU</option><option>US</option></select></div>
-        <div><label>Vest</label><input name="shirtSize" type="text"></div>
+        <div><label>Shirt</label><input name="shirtSize" type="text"></div>
         <div><label>Shorts</label><input name="shortsSize" type="text"></div>
         <div><label>Note / invoice</label><input name="note" type="text"></div>
         <button class="btn small" type="submit">Add to stock</button>
-      </form>
-      ${D.contributions.length ? '<h3>Financial contributions</h3>' + table(['Ref', 'Donor', 'For', '#Amount', 'Status'], D.contributions.map((c) => `<tr><td class="ref">${esc(c.ref)}</td><td>${esc(c.donor)}</td><td>${c.quantity} × ${c.type}</td><td class="num">${rand(c.amount)}</td><td>${statusPill(c.status)}</td></tr>`)) : ''}`;
-    $$('[data-rcv]', m).forEach((b) => b.addEventListener('click', () => { const q = prompt('How many items have physically arrived? (max ' + b.dataset.max + ')', b.dataset.max); if (q) act('receivePledge', { id: b.dataset.rcv, quantity: q }, 'Received into stock'); }));
-    $$('[data-close]', m).forEach((b) => b.addEventListener('click', () => confirm('Close this pledge? Items not yet received will no longer be expected.') && act('cancelPledge', { id: b.dataset.close })));
+      </form>`;
     $$('[data-alloc]', m).forEach((b) => b.addEventListener('click', () => { const v = $(`[data-sel="${b.dataset.alloc}"]`, m).value; if (!v) return toast('Choose a participant', true); act('allocate', { stockId: b.dataset.alloc, regId: v }, 'Allocated'); }));
     $$('[data-dlv]', m).forEach((b) => b.addEventListener('click', () => act('deliver', { stockId: b.dataset.dlv }, 'Marked delivered')));
     $$('[data-un]', m).forEach((b) => b.addEventListener('click', () => act('unallocate', { stockId: b.dataset.un })));
     $('#buy').addEventListener('submit', (e) => { e.preventDefault(); const f = e.target; act('recordPurchase', Object.fromEntries(new FormData(f)), 'Purchase recorded'); });
-    $('#csv').addEventListener('click', () => csvDownload('shoes-and-kit', ['Type', 'Item', 'Source', 'Status', 'Allocated to (ref)'], [
-      ...D.pledges.map((p) => ['pledge', p.type + ' ' + (p.size || p.shirtSize + '/' + p.shortsSize), p.donor + ' (' + p.quantity + ', received ' + p.receivedQty + ')', p.status, '']),
-      ...D.stock.map((s) => ['stock', s.type + ' ' + (s.size ? s.size + ' ' + s.sizeSystem : s.shirtSize + '/' + s.shortsSize), s.source, s.status, s.allocatedTo ? (regById(D, s.allocatedTo) || {}).ref : '']),
+    $('#csv').addEventListener('click', () => csvDownload('donations-and-kit', ['Type', 'Reference / item', 'Who / source', 'Amount', 'Status', 'Allocated to (ref)'], [
+      ...D.contributions.map((c) => ['donation', c.ref, c.donor, c.amount / 100, c.status, '']),
+      ...D.stock.map((s) => ['stock', s.type + ' ' + (s.size ? s.size + ' ' + s.sizeSystem : s.shirtSize + '/' + s.shortsSize), s.sourceId || 'purchase', '', s.status, s.allocatedTo ? (regById(D, s.allocatedTo) || {}).ref : '']),
     ]));
   },
 
@@ -445,6 +474,20 @@ function settingsView(m, D) {
       <div class="row2"><div class="field"><label>Full pickup address in PJ</label><input name="pickupFullAddress" type="text" value="${esc(S.event.pickupFullAddress)}"></div><div class="field" style="align-self:end">${chk('pickupAddressConfirmed', S.event.pickupAddressConfirmed, 'Address confirmed – publish it')}</div></div>
       <div class="field"><label>Where proceeds go (shown on home page and form)</label><textarea name="proceedsText">${esc(S.event.proceedsText)}</textarea></div>
     </div>
+    <div class="card" style="margin-bottom:16px"><h3>Start, finish and route</h3>
+      <p class="small muted">Shown publicly as “To be confirmed” until you tick the box below.</p>
+      <div class="row2"><div class="field"><label>Start location</label><input name="startLocation" type="text" value="${esc(S.event.startLocation)}" placeholder="e.g. Main gate, Melorane ERP Game Reserve"></div>
+        <div class="field"><label>Finish location</label><input name="finishLocation" type="text" value="${esc(S.event.finishLocation)}"></div></div>
+      <div class="field"><label>Running route <span class="hint">A short description of each distance's route</span></label><textarea name="routeDescription">${esc(S.event.routeDescription)}</textarea></div>
+      ${chk('routeConfirmed', S.event.routeConfirmed, 'Start, finish and route confirmed – publish them')}
+    </div>
+    <div class="card" style="margin-bottom:16px"><h3>Shirts and socks</h3>
+      <p class="small muted">Every entry includes a RunWild running shirt; participants choose a size when they register. Socks are an optional add-on, charged separately.</p>
+      <div class="row3"><div class="field"><label>Sock price per pair (R)</label><input name="socksPrice" type="number" min="0" step="0.01" value="${r(S.socks.price)}"></div>
+        <div class="field"><label>Max pairs per entry</label><input name="socksMax" type="number" min="1" value="${S.socks.maxPerEntry}"></div>
+        <div class="field" style="align-self:end">${chk('socksConfirmed', S.socks.confirmed, 'Sock price confirmed')}</div></div>
+      ${chk('socksEnabled', S.socks.enabled, 'Offer socks as an add-on')}
+    </div>
     <div class="card" style="margin-bottom:16px"><h3>Places and fees</h3>
       <div class="row3"><div class="field"><label>Group employees + other (shared)</label><input name="poolCombined" type="number" min="0" value="${S.pools.combined.limit}"></div>
         <div class="field"><label>Community members</label><input name="poolCommunity" type="number" min="0" value="${S.pools.community.limit}"></div>
@@ -458,6 +501,7 @@ function settingsView(m, D) {
       <div class="row3"><div class="field"><label>Rate per person per night (R)</label><input name="lodgeRate" type="number" value="${r(S.lodge.ratePerNight)}"></div>
         <div class="field"><label>Deposit %</label><input name="lodgeDeposit" type="number" min="0" max="100" value="${S.lodge.depositPercent}"></div>
         <div class="field"><label>Balance due date</label><input name="lodgeDue" type="date" value="${S.lodge.balanceDueDate}"></div></div>
+      <div class="row3"><div class="field"><label>Minimum stay (nights)</label><input name="lodgeMin" type="number" min="1" value="${S.lodge.minNights}"></div></div>
       <div class="row2"><div class="field"><label>Open nights and beds <span class="hint">One per line: yyyy-mm-dd, beds</span></label><textarea name="lodgeNights">${S.lodge.nights.map((n) => n.date + ', ' + n.beds).join('\n')}</textarea></div>
         <div class="field"><label>Deposit hold period (hours)</label><input name="lodgeHold" type="number" min="1" value="${S.lodge.holdHours}">${chk('inventoryConfirmed', S.lodge.inventoryConfirmed, 'Dates and inventory confirmed (removes “sample” label)')}</div></div>
       <div class="row3"><div class="field"><label>Late-booking policy</label><select name="lateMode"><option value="">Not set</option><option value="full_on_booking" ${S.lodge.latePolicy.mode === 'full_on_booking' ? 'selected' : ''}>Full amount on booking</option><option value="days_after_booking" ${S.lodge.latePolicy.mode === 'days_after_booking' ? 'selected' : ''}>Balance due N days after booking</option></select></div>
@@ -471,12 +515,12 @@ function settingsView(m, D) {
       <div class="field"><label>Sponsor benefits <span class="hint">One per line</span></label><textarea name="wpBenefits">${esc(S.waterPoints.benefits.join('\n'))}</textarea></div>
       ${chk('benefitsApproved', S.waterPoints.benefitsApproved, 'Benefits approved')}
     </div>
-    <div class="card" style="margin-bottom:16px"><h3>Donations</h3>
-      <div class="row3"><div class="field"><label>Shoe contribution price (R)</label><input name="shoePrice" type="number" step="0.01" value="${r(S.donations.shoePrice)}"></div>
-        <div class="field"><label>Kit contribution price (R)</label><input name="kitPrice" type="number" step="0.01" value="${r(S.donations.kitPrice)}"></div>
-        <div class="field" style="align-self:end">${chk('financialEnabled', S.donations.financialEnabled, 'Enable financial contributions')}</div></div>
-      <div class="row2"><div class="field"><label>Accepted conditions <span class="hint">One per line</span></label><textarea name="criteria">${esc(S.donations.conditionCriteria.join('\n'))}</textarea>${chk('criteriaApproved', S.donations.criteriaApproved, 'Criteria approved')}</div>
-        <div class="field"><label>Drop-off / collection details</label><textarea name="dropOff">${esc(S.donations.dropOffText)}</textarea></div></div>
+    <div class="card" style="margin-bottom:16px"><h3>Donations (money only)</h3>
+      <div class="row3"><div class="field"><label>Kit budget per runner (R)</label><input name="perRunner" type="number" min="1" step="0.01" value="${r(S.donations.perRunner)}"></div>
+        <div class="field"><label>Smallest donation (R)</label><input name="minAmount" type="number" min="1" step="1" value="${r(S.donations.minAmount)}"></div>
+        <div class="field"><label>Runners to equip (target)</label><input name="donTarget" type="number" min="0" value="${S.donations.target}"></div></div>
+      <div class="row2"><div class="field"><label>What the budget buys <span class="hint">One per line</span></label><textarea name="donItems">${esc(S.donations.items.join('\n'))}</textarea></div>
+        <div class="field" style="align-self:end">${chk('donEnabled', S.donations.enabled, 'Accept donations')}</div></div>
     </div>
     <div class="card" style="margin-bottom:16px"><h3>Payments</h3>
       <div class="row2"><div class="field"><label>Payment provider</label><input name="providerName" type="text" value="${esc(S.payments.providerName)}" placeholder="Not yet chosen"></div>
@@ -488,7 +532,7 @@ function settingsView(m, D) {
       <div class="field"><label>Event terms</label><textarea name="terms" style="min-height:140px">${esc(S.terms.text)}</textarea></div>
       <div class="row2"><div class="field"><label>Terms version</label><input name="termsVersion" type="text" value="${esc(S.terms.version)}"></div><div class="field" style="align-self:end">${chk('termsApproved', S.terms.approved, 'Terms approved')}</div></div>
       <div class="field"><label>Run Buddy training resources</label><textarea name="buddyText">${esc(S.buddy.resourcesText)}</textarea>${chk('buddyApproved', S.buddy.resourcesApproved, 'Resources approved')}</div>
-      <div class="field"><label>Employee invitation codes <span class="hint">One per line: CODE, group_employee|melorane_employee, max uses</span></label><textarea name="codes">${esc(S.inviteCodes.map((c) => [c.code, c.category, c.maxUses].join(', ')).join('\n'))}</textarea></div>
+      <div class="field"><label>Employee invitation codes <span class="hint">One per line: CODE, group_employee|melorane_employee, max uses (or “unlimited”)</span></label><textarea name="codes">${esc(S.inviteCodes.map((c) => [c.code, c.category, c.maxUses === null || c.maxUses === undefined ? 'unlimited' : c.maxUses].join(', ')).join('\n'))}</textarea></div>
     </div>
     <div class="notice bad" id="serr" hidden></div>
     <button class="btn" type="submit">Save settings</button>
@@ -504,23 +548,25 @@ function settingsView(m, D) {
     const lines = (v) => v.split('\n').map((x) => x.trim()).filter(Boolean);
     const existingCodes = Object.fromEntries(S.inviteCodes.map((c) => [c.code, c.uses]));
     const patch = {
-      event: { startTime: f.startTime.value.trim(), startTimeConfirmed: f.startTimeConfirmed.checked && !!f.startTime.value.trim(), pickupPlace: f.pickupPlace.value.trim(), pickupTime: f.pickupTime.value.trim(), pickupFullAddress: f.pickupFullAddress.value.trim(), pickupAddressConfirmed: f.pickupAddressConfirmed.checked && !!f.pickupFullAddress.value.trim(), proceedsText: f.proceedsText.value.trim() },
+      event: { startTime: f.startTime.value.trim(), startTimeConfirmed: f.startTimeConfirmed.checked && !!f.startTime.value.trim(), pickupPlace: f.pickupPlace.value.trim(), pickupTime: f.pickupTime.value.trim(), pickupFullAddress: f.pickupFullAddress.value.trim(), pickupAddressConfirmed: f.pickupAddressConfirmed.checked && !!f.pickupFullAddress.value.trim(), proceedsText: f.proceedsText.value.trim(),
+        startLocation: f.startLocation.value.trim(), finishLocation: f.finishLocation.value.trim(), routeDescription: f.routeDescription.value.trim(), routeConfirmed: f.routeConfirmed.checked },
+      socks: { price: cents(f.socksPrice.value), confirmed: f.socksConfirmed.checked, maxPerEntry: parseInt(f.socksMax.value, 10), enabled: f.socksEnabled.checked },
       pools: { combined: { limit: parseInt(f.poolCombined.value, 10) }, community: { limit: parseInt(f.poolCommunity.value, 10) } },
       reservation: { expiryHours: Number(f.expiryHours.value) },
       fees: Object.fromEntries(Object.keys(CATEGORIES).map((c) => [c, { amount: cents(f['fee_' + c].value), confirmed: f['feeok_' + c].checked, label: S.fees[c].label }])),
       acceptWhileFeeUnconfirmed: f.acceptWhileFeeUnconfirmed.checked,
       lodge: {
-        ratePerNight: cents(f.lodgeRate.value), depositPercent: Number(f.lodgeDeposit.value), balanceDueDate: f.lodgeDue.value, holdHours: Number(f.lodgeHold.value),
+        ratePerNight: cents(f.lodgeRate.value), depositPercent: Number(f.lodgeDeposit.value), balanceDueDate: f.lodgeDue.value, holdHours: Number(f.lodgeHold.value), minNights: parseInt(f.lodgeMin.value, 10),
         nights: lines(f.lodgeNights.value).map((l) => { const [date, beds] = l.split(',').map((x) => x.trim()); return { date, beds: parseInt(beds, 10) }; }).sort((a, b) => a.date.localeCompare(b.date)),
         inventoryConfirmed: f.inventoryConfirmed.checked,
         latePolicy: { mode: f.lateMode.value, days: Number(f.lateDays.value), confirmed: f.lateOk.checked && !!f.lateMode.value, text: f.lateText.value.trim() },
       },
       waterPoints: { price: cents(f.wpPrice.value), holdHours: Number(f.wpHold.value), responsibilities: Object.fromEntries(['water', 'refreshments', 'equipment', 'staff'].map((k) => [k, f['wp_' + k].value])), benefits: lines(f.wpBenefits.value), benefitsApproved: f.benefitsApproved.checked },
-      donations: { shoePrice: cents(f.shoePrice.value), kitPrice: cents(f.kitPrice.value), financialEnabled: f.financialEnabled.checked, conditionCriteria: lines(f.criteria.value), criteriaApproved: f.criteriaApproved.checked, dropOffText: f.dropOff.value.trim() },
+      donations: { perRunner: cents(f.perRunner.value), minAmount: cents(f.minAmount.value), target: parseInt(f.donTarget.value, 10) || 0, items: lines(f.donItems.value), enabled: f.donEnabled.checked },
       payments: { providerName: f.providerName.value.trim(), previewProvider: f.previewProvider.checked, eftEnabled: f.eftEnabled.checked, eftDetails: f.eftDetails.value.trim(), eftConfirmed: f.eftConfirmed.checked },
       terms: { text: f.terms.value.trim(), version: f.termsVersion.value.trim(), approved: f.termsApproved.checked },
       buddy: { resourcesText: f.buddyText.value.trim(), resourcesApproved: f.buddyApproved.checked },
-      inviteCodes: lines(f.codes.value).map((l) => { const [code, category, max] = l.split(',').map((x) => x.trim()); return { code: code.toUpperCase(), category, maxUses: parseInt(max, 10) || 100, uses: existingCodes[code.toUpperCase()] || 0 }; }).filter((c) => CATEGORIES[c.category] && CATEGORIES[c.category].employee),
+      inviteCodes: lines(f.codes.value).map((l) => { const [code, category, max] = l.split(',').map((x) => x.trim()); const unlimited = !max || /^unlimited$/i.test(max); return { code: code.toUpperCase(), category, maxUses: unlimited ? null : parseInt(max, 10) || 100, uses: existingCodes[code.toUpperCase()] || 0 }; }).filter((c) => CATEGORIES[c.category] && CATEGORIES[c.category].employee),
     };
     try { await api.updateSettings(token, patch); toast('Settings saved'); refresh(); } catch (err) { $('#serr').hidden = false; $('#serr').textContent = err.message; }
   });
@@ -536,13 +582,14 @@ function checklistView(m, D) {
     ['Community member entry fee', S.fees.community.confirmed],
     ['Stop accepting entries while a fee is unconfirmed', !S.acceptWhileFeeUnconfirmed],
     ['Canvas Lodge dates and inventory', S.lodge.inventoryConfirmed],
-    ['Canvas Lodge inclusions, minimum stay and cancellation terms (add to event terms)', false],
+    ['Start and finish locations and running route', S.event.routeConfirmed],
+    ['Sock add-on price', S.socks.confirmed || !S.socks.enabled],
+    ['RunWild shirt order placed (see Shirts & socks)', false],
+    ['Canvas Lodge inclusions and cancellation terms (add to event terms; minimum stay is ' + S.lodge.minNights + ' nights)', false],
     ['Late-booking policy for lodge bookings after ' + formatDate(S.lodge.balanceDueDate), S.lodge.latePolicy.confirmed],
     ['Payment provider chosen and connected (server-side notifications)', !!S.payments.providerName && S.payments.providerConnected],
     ['Preview payment page switched off', !S.payments.previewProvider],
     ['EFT bank details confirmed by ERP finance', S.payments.eftConfirmed],
-    ['Donation item prices (if financial contributions are wanted)', !!(S.donations.shoePrice && S.donations.kitPrice) || !S.donations.financialEnabled],
-    ['Donation condition criteria and drop-off arrangements', S.donations.criteriaApproved && !!S.donations.dropOffText],
     ['Water point responsibilities (water, refreshments, equipment, staff)', Object.values(S.waterPoints.responsibilities).every((v) => v !== 'tbc')],
     ['Water point sponsor benefits approved', S.waterPoints.benefitsApproved],
     ['Event terms approved', S.terms.approved],

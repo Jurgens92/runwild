@@ -2,6 +2,21 @@
 // The courses below are SAMPLE shapes generated for the preview. Replace ROUTES with the
 // organisers' real GPX track (lat/lng/elevation) once the course is confirmed.
 
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const TBC = '<span class="tbc">To be confirmed</span>';
+
+// Start, finish and route as published by the organisers. Until they confirm them, each shows "To be confirmed".
+export function routeFacts(ev = {}, mode = 'list') {
+  const ok = !!ev.routeConfirmed;
+  const rows = [
+    ['Start', ok && ev.startLocation ? esc(ev.startLocation) : TBC],
+    ['Finish', ok && ev.finishLocation ? esc(ev.finishLocation) : TBC],
+    ['Route', ok && ev.routeDescription ? esc(ev.routeDescription) : TBC],
+  ];
+  if (mode === 'rows') return rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('');
+  return `<dl class="rt-where">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+}
+
 const W = 600;
 const H = 420;
 
@@ -107,7 +122,7 @@ function mapSVG(route, other) {
     <path d="${pathOf(route.pts)}" fill="none" stroke="#fff" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>
     <path d="${pathOf(route.pts)}" fill="none" stroke="${route.colour}" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
     ${kmMarks.join('')}${wps}
-    <g transform="translate(${start[0].toFixed(1)} ${start[1].toFixed(1)})"><circle r="9" fill="${route.colour}" stroke="#fff" stroke-width="3"/><text x="14" y="-12" class="rt-tag">Start / finish</text></g>
+    <g transform="translate(${start[0].toFixed(1)} ${start[1].toFixed(1)})"><circle r="9" fill="${route.colour}" stroke="#fff" stroke-width="3"/><text x="14" y="-12" class="rt-tag">Start / finish (TBC)</text></g>
     <circle class="rt-dot" r="7" fill="#fff" stroke="${route.colour}" stroke-width="3" cx="${start[0]}" cy="${start[1]}" opacity="0"/>
     <g transform="translate(${W - 34} 34)" class="rt-north"><path d="M0 -14 L6 6 L0 2 L-6 6Z" fill="#74685b"/><text text-anchor="middle" y="20">N</text></g>
     <g transform="translate(24 ${H - 26})"><path d="M0 0 H${scale.toFixed(1)}" stroke="#74685b" stroke-width="2"/><path d="M0 -4 V4 M${scale.toFixed(1)} -4 V4" stroke="#74685b" stroke-width="2"/><text x="${(scale / 2).toFixed(1)}" y="-8" text-anchor="middle" class="rt-scale">1 km</text></g>
@@ -142,7 +157,7 @@ function profileSVG(route, w) {
   </svg>`;
 }
 
-export function routeExplorer(el, { initial = '21k' } = {}) {
+export function routeExplorer(el, { initial = '21k', event = {} } = {}) {
   const routes = fit({ '21k': build('21k'), '5k': build('5k') });
   const draw = (key) => {
     const r = routes[key];
@@ -160,7 +175,8 @@ export function routeExplorer(el, { initial = '21k' } = {}) {
             <div><dt>Highest point</dt><dd>${r.high.toLocaleString('en-ZA')} m</dd></div>
             <div><dt>Water points</dt><dd>${r.waterPoints.length}</dd></div>
           </dl>
-          <p class="rt-terrain"><span class="label muted">Terrain</span><br>${r.terrain}. Start and finish at the reserve gate.</p>
+          ${routeFacts(event)}
+          <p class="rt-terrain"><span class="label muted">Terrain</span><br>${r.terrain} (sample).</p>
           <p class="rt-legend small muted"><span><i class="sw" style="background:${r.colour}"></i>${r.label}</span>${key === '21k' ? '<span><i class="sw dash"></i>5 km loop</span>' : ''}<span><i class="sw drop"></i>Water point</span></p>
         </div>
       </div>
@@ -168,7 +184,7 @@ export function routeExplorer(el, { initial = '21k' } = {}) {
         <div class="rt-chart-head"><span class="label muted">Elevation profile</span><span class="small muted">Hover or tap to explore</span></div>
         <div class="rt-chart-box"><div class="rt-tip" hidden></div></div>
       </div>
-      <p class="small muted rt-note"><span class="sample">Sample route</span> Course shape and elevation are illustrative. The official route map will be published once the organisers confirm the course.</p>`;
+      <p class="small muted rt-note"><span class="sample">Sample route</span> ${event.routeConfirmed ? 'The map shape and elevation are still illustrative – the official route map will follow.' : 'Course shape, elevation, and the start and finish locations are illustrative. The start, finish and running route will be published once the organisers confirm them.'}</p>`;
     el.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => draw(b.dataset.k)));
     drawChart(el, r);
   };

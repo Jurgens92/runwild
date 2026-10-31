@@ -7,11 +7,11 @@
 import {
   CATEGORIES, DISTANCES, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
   normaliseMobile, validMobile, validEmail, nightsBetween, stayNights, lodgeQuote, lodgeBalanceDue, todayJHB,
-  formatDate,
+  formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES,
 } from './core.js';
 import { defaultSettings, sampleData } from './defaults.js';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const HOUR = 3600000;
 
 export class ValidationError extends Error {
@@ -79,7 +79,7 @@ export class Backend {
     const base = {
       version: SCHEMA_VERSION, createdAt: this.now(), settings,
       registrations: [], charges: [], payments: [], providerEvents: [], lodgeRequests: [], sponsorships: [],
-      pledges: [], stock: [], matches: [], contributions: [], outbox: [], audit: [], sessions: [],
+      stock: [], matches: [], contributions: [], outbox: [], audit: [], sessions: [],
     };
     if (this.seed) Object.assign(base, sampleData(this.now(), settings));
     base.audit.push({ id: uid(), at: this.now(), actor: 'system', action: 'preview.created', target: '', details: this.seed ? 'Preview created with sample data' : 'Empty preview created' });
@@ -148,7 +148,7 @@ export class Backend {
   }
 
   _uniqueRef(s, prefix) {
-    const taken = new Set([...s.registrations.map((r) => r.ref), ...s.sponsorships.map((x) => x.ref), ...s.pledges.map((x) => x.ref), ...s.contributions.map((x) => x.ref)]);
+    const taken = new Set([...s.registrations.map((r) => r.ref), ...s.sponsorships.map((x) => x.ref), ...s.contributions.map((x) => x.ref)]);
     let ref;
     do { ref = makeRef(prefix); } while (taken.has(ref));
     return ref;
@@ -188,8 +188,9 @@ export class Backend {
         acceptWhileFeeUnconfirmed: st.acceptWhileFeeUnconfirmed,
         reservationHours: st.reservation.expiryHours,
         terms: clone(st.terms),
+        socks: clone(st.socks),
         lodge: {
-          ratePerNight: st.lodge.ratePerNight, depositPercent: st.lodge.depositPercent, balanceDueDate: st.lodge.balanceDueDate,
+          ratePerNight: st.lodge.ratePerNight, depositPercent: st.lodge.depositPercent, minNights: st.lodge.minNights, balanceDueDate: st.lodge.balanceDueDate,
           inventoryConfirmed: st.lodge.inventoryConfirmed, latePolicy: clone(st.lodge.latePolicy),
           nights: st.lodge.nights.map((n) => ({ date: n.date, available: Math.max(0, n.beds - this._bedsUsed(s, n.date)) })),
         },
@@ -229,15 +230,18 @@ export class Backend {
     }).length;
   }
 
+  // Money raised is counted only once it is received. ERP buys the items, so "in hand" means purchased stock.
   _donationProgress(s) {
-    const community = s.registrations.filter((r) => r.category === 'community' && r.status !== 'cancelled' && r.kit);
+    const needing = s.registrations.filter((r) => r.kit && r.status !== 'cancelled' && CATEGORIES[r.category].kitOptions);
     const count = (type, status) => s.stock.filter((x) => x.type === type && (!status || x.status === status)).length;
-    const pledgedOutstanding = (type) => s.pledges.filter((p) => p.type === type && (p.status === 'pledged' || p.status === 'partially_received')).reduce((a, p) => a + (p.quantity - p.receivedQty), 0);
+    const raised = s.charges.filter((c) => c.kind === 'donation').reduce((a, c) => a + sumPaid(s.payments, c.id), 0);
+    const per = s.settings.donations.perRunner;
     return {
-      shoesRequested: community.filter((r) => r.kit.needsShoes).length,
-      kitRequested: community.filter((r) => r.kit.needsKit).length,
-      shoesPledged: pledgedOutstanding('shoes'),
-      kitPledged: pledgedOutstanding('kit'),
+      runnersNeedingKit: needing.filter((r) => r.kit.needsShoes || r.kit.needsKit).length,
+      shoesRequested: needing.filter((r) => r.kit.needsShoes).length,
+      kitRequested: needing.filter((r) => r.kit.needsKit).length,
+      raised,
+      runnersFunded: per ? Math.floor(raised / per) : 0,
       shoesInHand: count('shoes'),
       kitInHand: count('kit'),
       shoesAllocated: count('shoes', 'allocated') + count('shoes', 'delivered'),
@@ -248,7 +252,7 @@ export class Backend {
   async checkInviteCode(code, category) {
     return this._read((s) => {
       const c = s.settings.inviteCodes.find((x) => x.code.toUpperCase() === String(code || '').trim().toUpperCase());
-      return !!c && c.category === category && c.uses < c.maxUses;
+      return !!c && c.category === category && codeHasUses(c);
     });
   }
 
@@ -266,6 +270,12 @@ export class Backend {
     if (!validMobile(input.emergencyMobile)) e.emergencyMobile = 'Enter an emergency contact number.';
     if (!DISTANCES[input.distance]) e.distance = 'Choose a distance.';
     if (cat && cat.employee && !String(input.employer || '').trim()) e.employer = 'Enter the company or employer.';
+    if (!SHIRT_SIZES.includes(input.shirtSize)) e.shirtSize = 'Choose a size for your RunWild running shirt.';
+    const so = input.socks || {};
+    const qty = Number(so.qty || 0);
+    if (!(Number.isInteger(qty) && qty >= 0 && qty <= s.settings.socks.maxPerEntry)) e.socksQty = 'Choose up to ' + s.settings.socks.maxPerEntry + ' pairs.';
+    else if (qty > 0 && !s.settings.socks.enabled) e.socksQty = 'Socks are not available at the moment.';
+    else if (qty > 0 && !SOCK_SIZES.includes(so.size)) e.socksSize = 'Choose a sock size.';
     if (!input.termsAccepted) e.termsAccepted = 'Please accept the event terms.';
     if (!input.privacyAck) e.privacyAck = 'Please confirm you have read the privacy notice.';
     if (cat && cat.adultOptions) {
@@ -284,8 +294,14 @@ export class Backend {
       const k = input.kit || {};
       if (!k.shoeSize) e.shoeSize = 'Enter a shoe size.';
       if (!k.shoeSystem) e.shoeSystem = 'Choose a sizing system.';
-      if (!k.shirtSize) e.shirtSize = 'Choose a shirt/vest size.';
       if (!k.shortsSize) e.shortsSize = 'Choose a pants/shorts size.';
+    }
+    if (input.category === 'melorane_employee') {
+      // Sizes are only needed for the items the employee asks for.
+      const k = input.kit || {};
+      if (k.needsShoes && !k.shoeSize) e.shoeSize = 'Enter a shoe size.';
+      if (k.needsShoes && !k.shoeSystem) e.shoeSystem = 'Choose a sizing system.';
+      if (k.needsKit && !k.shortsSize) e.shortsSize = 'Choose a pants/shorts size.';
     }
     if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
   }
@@ -294,6 +310,8 @@ export class Backend {
     if (!arrival || !departure) return 'Choose arrival and departure dates.';
     const n = nightsBetween(arrival, departure);
     if (n < 1) return 'Departure must be after arrival.';
+    const min = s.settings.lodge.minNights || 1;
+    if (n < min) return 'Canvas Lodge bookings are for a minimum of ' + min + ' nights.';
     const open = new Set(s.settings.lodge.nights.map((x) => x.date));
     const missing = stayNights(arrival, departure).filter((d) => !open.has(d));
     if (missing.length) return 'Canvas Lodge is not open on the night of ' + missing.map(formatDate).join(', ') + '.';
@@ -325,6 +343,8 @@ export class Backend {
         status: 'draft', expiresAt: null, verification: cat.employee ? 'pending' : 'n/a',
         assisted: !!organiser, assistedBy: organiser ? organiser.email : null,
         lodge: null, buddy: null, kit: null, transportAck: false, pickupAck: false,
+        shirtSize: input.shirtSize,
+        socks: Number(input.socks && input.socks.qty) > 0 ? { qty: Number(input.socks.qty), size: input.socks.size } : null,
       };
       if (cat.adultOptions) {
         reg.lodge = { wanted: !!input.lodge.wanted };
@@ -333,10 +353,13 @@ export class Backend {
           ? { optIn: true, status: 'volunteered', preferredDistance: input.buddy.preferredDistance || input.distance, experience: input.buddy.experience, availability: input.buddy.availability, contactMethod: input.buddy.contactMethod || 'Phone', support: input.buddy.support || '' }
           : { optIn: false };
       }
+      if (cat.kitOptions) {
+        // The kit shirt is the RunWild running shirt, so it uses the entry's shirt size.
+        const k = input.kit || {};
+        reg.kit = { shoeSize: String(k.shoeSize || ''), shoeSystem: k.shoeSize ? k.shoeSystem || 'UK' : '', shirtSize: input.shirtSize, shortsSize: k.shortsSize || '', needsShoes: !!k.needsShoes, needsKit: !!k.needsKit };
+      }
       if (input.category === 'community') {
         reg.pickupAck = true;
-        const k = input.kit;
-        reg.kit = { shoeSize: String(k.shoeSize), shoeSystem: k.shoeSystem, shirtSize: k.shirtSize, shortsSize: k.shortsSize, needsShoes: !!k.needsShoes, needsKit: !!k.needsKit };
         reg.buddy = { optIn: !!(input.buddy && input.buddy.optIn), status: input.buddy && input.buddy.optIn ? 'awaiting_match' : undefined };
       }
       s.registrations.push(reg);
@@ -346,7 +369,7 @@ export class Backend {
         if (organiser && input.organiserVerified) {
           reg.verification = 'verified';
           reg.verifiedBy = organiser.email;
-        } else if (code && code.category === input.category && code.uses < code.maxUses) {
+        } else if (code && code.category === input.category && codeHasUses(code)) {
           code.uses += 1;
           reg.verification = 'verified';
           reg.verifiedBy = 'invite code ' + code.code;
@@ -389,18 +412,28 @@ export class Backend {
       reg.status = 'reserved';
       reg.expiresAt = null;
       reg.holdReason = 'fee_unconfirmed';
-      return;
-    }
-    if (fee.amount === 0) {
+    } else if (fee.amount === 0) {
       reg.status = 'confirmed';
       reg.expiresAt = null;
-      return;
+    } else {
+      reg.status = 'reserved';
+      reg.expiresAt = this.now() + s.settings.reservation.expiryHours * HOUR;
+      let ch = s.charges.find((c) => c.ownerId === reg.id && c.kind === 'entry');
+      if (!ch) ch = this._charge(s, { kind: 'entry', ownerType: 'registration', ownerId: reg.id, label: fee.label, amount: fee.amount, ref: reg.ref + '-E' });
+      if (sumPaid(s.payments, ch.id) >= ch.amount) { reg.status = 'confirmed'; reg.expiresAt = null; }
     }
-    reg.status = 'reserved';
-    reg.expiresAt = this.now() + s.settings.reservation.expiryHours * HOUR;
-    let ch = s.charges.find((c) => c.ownerId === reg.id && c.kind === 'entry');
-    if (!ch) ch = this._charge(s, { kind: 'entry', ownerType: 'registration', ownerId: reg.id, label: fee.label, amount: fee.amount, ref: reg.ref + '-E' });
-    if (sumPaid(s.payments, ch.id) >= ch.amount) { reg.status = 'confirmed'; reg.expiresAt = null; }
+    this._sockCharge(s, reg);
+  }
+
+  // Socks are a separate add-on charge. It is raised only once the entry holds a place and the
+  // organisers have confirmed the sock price; until then the order is recorded with nothing payable.
+  _sockCharge(s, reg) {
+    const so = s.settings.socks;
+    if (!reg.socks || !reg.socks.qty || !so.confirmed || !so.price) return null;
+    if (!['reserved', 'confirmed'].includes(reg.status)) return null;
+    let ch = s.charges.find((c) => c.ownerId === reg.id && c.kind === 'socks');
+    if (!ch) ch = this._charge(s, { kind: 'socks', ownerType: 'registration', ownerId: reg.id, label: so.label + ' × ' + reg.socks.qty + ' (' + reg.socks.size + ')', amount: so.price * reg.socks.qty, ref: reg.ref + '-S' });
+    return ch;
   }
 
   _createLodgeRequest(s, reg, arrival, departure) {
@@ -451,6 +484,12 @@ export class Backend {
       expiresAt: reg.expiresAt, cancelReason: reg.cancelReason || null,
       fullName: reg.fullName, category: reg.category, distance: reg.distance, assisted: reg.assisted,
       fee, pool, charges,
+      shirtSize: reg.shirtSize || '',
+      socks: reg.socks ? clone(reg.socks) : null,
+      socksPrice: st.socks.confirmed ? st.socks.price : null,
+      socksLabel: st.socks.label,
+      kit: reg.kit ? clone(reg.kit) : null,
+      lodgeMinNights: st.lodge.minNights,
       lodge: lodge ? clone(lodge) : null,
       lodgeWanted: reg.lodge ? reg.lodge.wanted : null,
       transportAck: reg.transportAck,
@@ -466,7 +505,9 @@ export class Backend {
       'Reference: ' + conf.ref,
       'Status: ' + conf.status,
       'Category: ' + CATEGORIES[reg.category].label + ' · ' + DISTANCES[reg.distance],
+      'RunWild running shirt: size ' + (reg.shirtSize || '—'),
     ];
+    if (reg.socks) lines.push('Socks: ' + reg.socks.qty + ' pair(s), size ' + reg.socks.size + (conf.socksPrice ? '' : ' – price to be confirmed'));
     for (const c of conf.charges) lines.push(c.label + ': R' + (c.amount / 100) + ' – outstanding R' + (c.outstanding / 100));
     if (reg.category === 'community') lines.push('Pickup: ' + conf.event.pickupPlace + ' at ' + conf.event.pickupTime + ' on ' + formatDate(conf.event.date) + '.');
     else lines.push('Early start – exact time to be confirmed. Arrive at ' + conf.event.venue + ' in good time.');
@@ -563,6 +604,22 @@ export class Backend {
       if (err) throw new ValidationError(err);
       r.lodge = { wanted: true };
       this._createLodgeRequest(s, r, arrival, departure);
+      return this._confirmation(s, r);
+    });
+  }
+
+  async addSocksForEntry(ref, mobile, qty, size) {
+    return this._write((s) => {
+      const r = this._findOwn(s, ref, mobile);
+      if (r.status === 'cancelled') throw new ValidationError('This entry is cancelled.');
+      if (!s.settings.socks.enabled) throw new ValidationError('Socks are not available at the moment.');
+      if (r.socks && r.socks.qty) throw new ValidationError('You have already ordered socks. Contact the organisers to change your order.');
+      const q = Number(qty);
+      if (!(Number.isInteger(q) && q >= 1 && q <= s.settings.socks.maxPerEntry)) throw new ValidationError('Choose 1 to ' + s.settings.socks.maxPerEntry + ' pairs.');
+      if (!SOCK_SIZES.includes(size)) throw new ValidationError('Choose a sock size.');
+      r.socks = { qty: q, size };
+      this._sockCharge(s, r);
+      this._audit(s, 'participant', 'socks.ordered', r.ref, q + ' × ' + size);
       return this._confirmation(s, r);
     });
   }
@@ -698,48 +755,40 @@ export class Backend {
 
   // ---------- donations ----------
 
-  async submitPledge(input) {
-    return this._write((s) => {
-      if (input.clientRequestId) {
-        const ex = s.pledges.find((x) => x.clientRequestId === input.clientRequestId);
-        if (ex) return { ...clone(ex), duplicateSubmission: true };
-      }
-      const e = {};
-      if (!input.donor || input.donor.trim().length < 2) e.donor = 'Enter your name.';
-      if (!validEmail(input.email) && !validMobile(input.phone)) e.email = 'Give an email address or mobile number.';
-      if (!['shoes', 'kit'].includes(input.type)) e.type = 'Choose what you are donating.';
-      const q = Number(input.quantity);
-      if (!(q >= 1 && q <= 100)) e.quantity = 'Enter a quantity from 1 to 100.';
-      if (input.type === 'shoes' && (!input.size || !input.sizeSystem)) e.size = 'Enter the shoe size and sizing system.';
-      if (input.type === 'kit' && (!input.shirtSize || !input.shortsSize)) e.shirtSize = 'Enter vest and shorts sizes.';
-      if (!s.settings.donations.conditionCriteria.includes(input.condition)) e.condition = 'Choose the condition.';
-      if (!input.delivery) e.delivery = 'Tell us how the items will reach us.';
-      if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
-      const p = {
-        id: uid(), ref: this._uniqueRef(s, 'RWM-DP'), clientRequestId: input.clientRequestId || uid(), donor: input.donor.trim(), email: input.email || '', phone: input.phone || '',
-        type: input.type, quantity: q, size: input.size || '', sizeSystem: input.sizeSystem || '', shirtSize: input.shirtSize || '', shortsSize: input.shortsSize || '',
-        condition: input.condition, delivery: input.delivery, notes: input.notes || '', status: 'pledged', receivedQty: 0, createdAt: this.now(),
-      };
-      s.pledges.push(p);
-      this._audit(s, 'public', 'pledge.created', p.ref, q + ' × ' + p.type);
-      if (p.email) this._queueMessage(s, { to: p.email, channel: 'email', subject: 'Your Run Wild pledge ' + p.ref, body: 'Thank you for pledging ' + q + ' × ' + (p.type === 'shoes' ? 'pairs of running shoes' : 'running kit sets') + '.', ref: p.ref });
-      return clone(p);
-    });
-  }
-
+  // Monetary donations only: kit out a number of runners at the per-runner budget, or give any amount.
   async submitContribution(input) {
     return this._write((s) => {
+      if (input.clientRequestId) {
+        const ex = s.contributions.find((x) => x.clientRequestId === input.clientRequestId);
+        if (ex) {
+          const ch = s.charges.find((c) => c.ownerId === ex.id);
+          return { ...clone(ex), charge: this._chargeView(s, ch), duplicateSubmission: true };
+        }
+      }
       const d = s.settings.donations;
-      const price = input.type === 'shoes' ? d.shoePrice : d.kitPrice;
-      if (!d.financialEnabled || !price) throw new ValidationError('Financial contributions open once item prices and payment arrangements are confirmed.');
-      if (!s.settings.payments.previewProvider && !s.settings.payments.providerConnected && !s.settings.payments.eftEnabled) throw new ValidationError('No payment method is configured yet.');
-      const q = Number(input.quantity);
-      if (!(q >= 1 && q <= 50)) throw new ValidationError('Enter a quantity from 1 to 50.');
-      if (!input.donor || !validEmail(input.email)) throw new ValidationError('Enter your name and a valid email address.');
-      const c = { id: uid(), ref: this._uniqueRef(s, 'RWM-DF'), donor: input.donor, email: input.email, type: input.type, quantity: q, amount: price * q, status: 'awaiting_payment', createdAt: this.now() };
+      if (!d.enabled) throw new ValidationError('Donations are not open yet.');
+      const pay = s.settings.payments;
+      if (!pay.previewProvider && !pay.providerConnected && !pay.eftEnabled) throw new ValidationError('No payment method is configured yet.');
+      const e = {};
+      let runners = null;
+      let amount;
+      if (input.mode === 'amount') {
+        amount = Math.round(Number(input.amount) * 100);
+        if (!(amount >= d.minAmount && amount <= 100000000)) e.amount = 'Enter an amount of at least R' + d.minAmount / 100 + '.';
+      } else {
+        runners = Number(input.runners);
+        if (!(Number.isInteger(runners) && runners >= 1 && runners <= 50)) e.runners = 'Choose 1 to 50 runners.';
+        amount = d.perRunner * runners;
+      }
+      if (!input.donor || input.donor.trim().length < 2) e.donor = 'Enter your name or company.';
+      if (!validEmail(input.email)) e.email = 'Enter a valid email address.';
+      if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
+      const c = { id: uid(), ref: this._uniqueRef(s, 'RWM-DF'), clientRequestId: input.clientRequestId || uid(), donor: input.donor.trim(), email: input.email.trim(), phone: input.phone || '', runners, amount, status: 'awaiting_payment', createdAt: this.now() };
       s.contributions.push(c);
-      const ch = this._charge(s, { kind: 'donation', ownerType: 'contribution', ownerId: c.id, label: q + ' × ' + (input.type === 'shoes' ? 'shoes' : 'kit') + ' contribution', amount: c.amount, ref: c.ref });
-      this._audit(s, 'public', 'contribution.created', c.ref, 'R' + c.amount / 100);
+      const label = runners ? 'Kit out ' + runners + ' runner' + (runners > 1 ? 's' : '') : 'Donation towards shoes and kit';
+      const ch = this._charge(s, { kind: 'donation', ownerType: 'contribution', ownerId: c.id, label, amount, ref: c.ref });
+      this._audit(s, 'public', 'donation.created', c.ref, 'R' + amount / 100 + (runners ? ' (' + runners + ' runner' + (runners > 1 ? 's' : '') + ')' : ''));
+      this._queueMessage(s, { to: c.email, channel: 'email', subject: 'Your Run Wild donation ' + c.ref, body: 'Thank you for your donation of R' + amount / 100 + '. Use reference ' + c.ref + ' if you pay by EFT.', ref: c.ref });
       return { ...clone(c), charge: this._chargeView(s, ch) };
     });
   }
@@ -805,6 +854,7 @@ export class Backend {
           } else if (args.reassignTo) {
             const from = reg.category;
             reg.category = args.reassignTo; reg.verification = 'n/a'; reg.employer = '';
+            if (!CATEGORIES[reg.category].kitOptions) reg.kit = null;
             this._allocate(s, reg);
             this._audit(s, who, 'employee.reassigned', reg.ref, from + ' → ' + reg.category + ', ' + reg.status);
           } else {
@@ -847,6 +897,13 @@ export class Backend {
           this._applyPayment(s, ch, amount, { method: 'eft', bankRef: args.bankRef, recordedBy: who }, who);
           return null;
         }
+        case 'issueSockCharges': {
+          if (!s.settings.socks.confirmed || !s.settings.socks.price) throw new ValidationError('Confirm the sock price first.');
+          let n = 0;
+          for (const r of s.registrations) if (r.socks && r.socks.qty && !s.charges.some((c) => c.ownerId === r.id && c.kind === 'socks') && this._sockCharge(s, r)) n++;
+          this._audit(s, who, 'socks.issued', '', n + ' sock orders now payable');
+          return n;
+        }
         case 'issueFeeRequests': {
           const fee = entryFee(s.settings, args.category);
           if (!fee.confirmed) throw new ValidationError('Confirm the fee for this category first.');
@@ -872,24 +929,6 @@ export class Backend {
           this._audit(s, who, 'sponsorship.cancelled', sp.ref, 'Water Point ' + sp.point);
           return null;
         }
-        case 'receivePledge': {
-          const p = s.pledges.find((x) => x.id === args.id);
-          if (!p) throw new ValidationError('Pledge not found.');
-          const q = Number(args.quantity);
-          if (!(q >= 1 && q <= p.quantity - p.receivedQty)) throw new ValidationError('Enter a quantity between 1 and ' + (p.quantity - p.receivedQty) + '.');
-          for (let i = 0; i < q; i++) s.stock.push({ id: uid(), type: p.type, size: p.size, sizeSystem: p.sizeSystem, shirtSize: p.shirtSize, shortsSize: p.shortsSize, source: 'pledge', sourceId: p.id, status: 'in_stock', allocatedTo: null, receivedAt: this.now() });
-          p.receivedQty += q;
-          p.status = p.receivedQty >= p.quantity ? 'received' : 'partially_received';
-          this._audit(s, who, 'pledge.received', p.ref, q + ' received (' + p.receivedQty + '/' + p.quantity + ')');
-          return null;
-        }
-        case 'cancelPledge': {
-          const p = s.pledges.find((x) => x.id === args.id);
-          p.status = p.receivedQty ? 'received' : 'cancelled';
-          p.quantity = p.receivedQty || p.quantity;
-          this._audit(s, who, 'pledge.closed', p.ref);
-          return null;
-        }
         case 'recordPurchase': {
           const q = Number(args.quantity);
           if (!['shoes', 'kit'].includes(args.type) || !(q >= 1 && q <= 100)) throw new ValidationError('Choose an item type and quantity.');
@@ -900,7 +939,7 @@ export class Backend {
         case 'allocate': {
           const item = s.stock.find((x) => x.id === args.stockId);
           if (!item || item.status !== 'in_stock') throw new ValidationError('That item is not in stock.');
-          if (!reg || reg.category !== 'community') throw new ValidationError('Choose a community participant.');
+          if (!reg || !reg.kit || !CATEGORIES[reg.category].kitOptions) throw new ValidationError('Choose a participant who asked for kit.');
           if (s.stock.some((x) => x.allocatedTo === reg.id && x.type === item.type && x.status !== 'in_stock')) throw new ValidationError('This participant already has ' + item.type + ' allocated.');
           item.status = 'allocated'; item.allocatedTo = reg.id;
           this._audit(s, who, 'stock.allocated', reg.ref, item.type);
@@ -971,6 +1010,11 @@ export class Backend {
       if (!(next.reservation.expiryHours >= 1)) e.push('Reservation expiry must be at least 1 hour.');
       for (const [cat, f] of Object.entries(next.fees)) if (f.confirmed && !(Number.isInteger(f.amount) && f.amount >= 0)) e.push('Set an amount for ' + CATEGORIES[cat].label + ' before confirming it.');
       if (!(next.waterPoints.price > 0)) e.push('Water point price must be above zero.');
+      if (!(Number.isInteger(next.lodge.minNights) && next.lodge.minNights >= 1)) e.push('Lodge minimum stay must be a whole number of nights.');
+      if (next.socks.confirmed && !(Number.isInteger(next.socks.price) && next.socks.price > 0)) e.push('Set a sock price before confirming it.');
+      if (!(Number.isInteger(next.socks.maxPerEntry) && next.socks.maxPerEntry >= 1)) e.push('Allow at least one pair of socks per entry.');
+      if (!(Number.isInteger(next.donations.perRunner) && next.donations.perRunner > 0)) e.push('Set the per-runner kit budget.');
+      if (next.event.routeConfirmed && !(next.event.startLocation && next.event.finishLocation && next.event.routeDescription)) e.push('Fill in the start, finish and route before confirming them.');
       for (const n of next.lodge.nights) if (!/^\d{4}-\d{2}-\d{2}$/.test(n.date) || !(Number.isInteger(n.beds) && n.beds >= 0)) e.push('Each lodge night needs a date and a whole number of beds.');
       if (e.length) throw new ValidationError(e.join(' '));
       s.settings = next;

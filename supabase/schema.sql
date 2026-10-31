@@ -44,6 +44,11 @@ create table if not exists event_settings (
   lodge_deposit_percent  integer not null default 20 check (lodge_deposit_percent between 0 and 100),
   lodge_balance_due      date not null default '2027-01-31',
   lodge_hold_hours       integer not null default 72,
+  lodge_min_nights       integer not null default 2 check (lodge_min_nights >= 1),
+  socks_cents            integer check (socks_cents > 0),         -- null until the sock price is confirmed
+  socks_max_per_entry    integer not null default 5,
+  donation_per_runner    integer not null default 250000,         -- shoes, shorts, shirt, socks and cap
+  donation_min_cents     integer not null default 5000,
   water_point_cents      integer not null default 500000,
   water_point_hold_hours integer not null default 72,
   settings               jsonb not null default '{}'::jsonb   -- texts, approvals, policies
@@ -53,7 +58,7 @@ insert into event_settings (id) values (true) on conflict do nothing;
 create table if not exists invite_codes (
   code      text primary key,
   category  text not null references categories(category) check (category in ('group_employee', 'melorane_employee')),
-  max_uses  integer not null default 100,
+  max_uses  integer default 100,        -- null = unlimited (Melorane employees have unlimited entries)
   uses      integer not null default 0
 );
 
@@ -89,18 +94,22 @@ create table if not exists registrations (
   emergency_name    text not null,
   emergency_mobile  text not null,
   employer          text,
-  details           jsonb not null default '{}'::jsonb,  -- kit sizes, buddy, acknowledgements
+  shirt_size        text not null check (shirt_size in ('XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL')),  -- every entry includes a RunWild shirt
+  socks_qty         integer not null default 0 check (socks_qty >= 0),
+  socks_size        text check (socks_size in ('S (UK 3–5)', 'M (UK 6–8)', 'L (UK 9–11)', 'XL (UK 12+)')),
+  details           jsonb not null default '{}'::jsonb,  -- kit request and sizes, buddy, acknowledgements
   terms_version     text not null,
   assisted_by       uuid,
   attention         text,
-  created_at        timestamptz not null default now()
+  created_at        timestamptz not null default now(),
+  check (socks_qty = 0 or socks_size is not null)
 );
 create index if not exists registrations_pool_status on registrations (pool, status);
 create unique index if not exists registrations_active_person on registrations (mobile, lower(full_name)) where status <> 'cancelled';
 
 create table if not exists charges (
   id          uuid primary key default gen_random_uuid(),
-  kind        text not null check (kind in ('entry', 'lodge_deposit', 'lodge_balance', 'sponsorship', 'donation')),
+  kind        text not null check (kind in ('entry', 'socks', 'lodge_deposit', 'lodge_balance', 'sponsorship', 'donation')),
   owner_type  text not null,
   owner_id    uuid not null,
   label       text not null,
@@ -183,27 +192,40 @@ create table if not exists lodge_requests (
   created_at      timestamptz not null default now()
 );
 
-create table if not exists pledges (
-  id           uuid primary key default gen_random_uuid(),
-  ref          text not null unique,
-  donor        text not null,
-  email        text,
-  phone        text,
-  item_type    text not null check (item_type in ('shoes', 'kit')),
-  quantity     integer not null check (quantity between 1 and 100),
-  received_qty integer not null default 0 check (received_qty <= quantity),
-  sizes        jsonb not null,
-  condition    text not null,
-  delivery     text not null,
-  status       text not null default 'pledged' check (status in ('pledged', 'partially_received', 'received', 'cancelled')),
-  created_at   timestamptz not null default now()
+-- Canvas Lodge bookings have a minimum stay (two nights by default).
+create or replace function check_lodge_min_nights() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_min integer;
+begin
+  select lodge_min_nights into v_min from event_settings;
+  if new.departure - new.arrival < coalesce(v_min, 1) then
+    raise exception 'Canvas Lodge bookings are for a minimum of % nights', v_min using errcode = 'P0001';
+  end if;
+  return new;
+end $$;
+drop trigger if exists lodge_min_nights on lodge_requests;
+create trigger lodge_min_nights before insert or update of arrival, departure on lodge_requests
+  for each row execute function check_lodge_min_nights();
+
+-- Monetary donations only. ERP buys the shoes and kit and records them as stock_items.
+create table if not exists donations (
+  id                uuid primary key default gen_random_uuid(),
+  ref               text not null unique,
+  client_request_id text not null unique,
+  donor             text not null,
+  email             text not null,
+  phone             text,
+  runners           integer check (runners between 1 and 50),   -- null = a general amount
+  amount            integer not null check (amount > 0),
+  status            text not null default 'awaiting_payment' check (status in ('awaiting_payment', 'paid', 'cancelled')),
+  created_at        timestamptz not null default now()
 );
 
 create table if not exists stock_items (
   id           uuid primary key default gen_random_uuid(),
   item_type    text not null check (item_type in ('shoes', 'kit')),
   sizes        jsonb not null,
-  source       text not null check (source in ('pledge', 'purchase')),
+  source       text not null default 'purchase' check (source in ('purchase')),
   source_id    text,
   status       text not null default 'in_stock' check (status in ('in_stock', 'allocated', 'delivered')),
   allocated_to uuid references registrations(id),
@@ -230,7 +252,8 @@ begin
   loop
     r := prefix || '-';
     for i in 1..5 loop r := r || substr(alphabet, 1 + floor(random() * 32)::int, 1); end loop;
-    exit when not exists (select 1 from registrations where ref = r) and not exists (select 1 from sponsorships where ref = r);
+    exit when not exists (select 1 from registrations where ref = r) and not exists (select 1 from sponsorships where ref = r)
+      and not exists (select 1 from donations where ref = r);
   end loop;
   return r;
 end $$;
@@ -276,11 +299,13 @@ begin
     raise exception 'registration for this category opens once the fee is confirmed';
   end if;
   if coalesce((p->>'terms_accepted')::boolean, false) is not true then raise exception 'terms must be accepted'; end if;
+  if coalesce(p->>'shirt_size', '') = '' then raise exception 'choose a RunWild shirt size'; end if;
+  if coalesce((p->>'socks_qty')::int, 0) not between 0 and v_set.socks_max_per_entry then raise exception 'too many pairs of socks'; end if;
 
   if v_cat.category in ('group_employee', 'melorane_employee') then
     v_verif := 'pending';
     select * into v_code from invite_codes
-      where upper(code) = upper(coalesce(p->>'invite_code', '')) and category = v_cat.category and uses < max_uses
+      where upper(code) = upper(coalesce(p->>'invite_code', '')) and category = v_cat.category and (max_uses is null or uses < max_uses)
       for update;
     if found then
       update invite_codes set uses = uses + 1 where code = v_code.code;
@@ -302,12 +327,13 @@ begin
 
   begin
     insert into registrations (ref, client_request_id, category, pool, distance, status, expires_at, hold_reason, verification,
-      full_name, mobile, email, emergency_name, emergency_mobile, employer, details, terms_version, assisted_by)
+      full_name, mobile, email, emergency_name, emergency_mobile, employer, shirt_size, socks_qty, socks_size, details, terms_version, assisted_by)
     values (new_ref('RWM'), p->>'client_request_id', v_cat.category, v_cat.pool, p->>'distance', v_status,
       case when v_status = 'reserved' and v_cat.fee_confirmed and v_cat.fee_cents > 0 then now() + make_interval(hours => v_set.reservation_hours) end,
       case when v_status = 'reserved' and not v_cat.fee_confirmed then 'fee_unconfirmed' end,
       v_verif, p->>'full_name', p->>'mobile', nullif(p->>'email', ''), p->>'emergency_name', p->>'emergency_mobile',
-      nullif(p->>'employer', ''), coalesce(p->'details', '{}'::jsonb), coalesce(p->>'terms_version', 'draft'),
+      nullif(p->>'employer', ''), p->>'shirt_size', coalesce((p->>'socks_qty')::int, 0), nullif(p->>'socks_size', ''),
+      coalesce(p->'details', '{}'::jsonb), coalesce(p->>'terms_version', 'draft'),
       case when is_organiser() then auth.uid() end)
     returning * into v_reg;
   exception when unique_violation then
@@ -324,6 +350,12 @@ begin
       insert into charges (kind, owner_type, owner_id, label, amount, ref)
       values ('entry', 'registration', v_reg.id, 'Charitable entry fee', v_cat.fee_cents, v_reg.ref || '-E');
     end if;
+  end if;
+
+  -- Socks add-on: a separate charge, raised only once the entry holds a place and the price is set.
+  if v_status = 'reserved' and v_reg.socks_qty > 0 and v_set.socks_cents is not null then
+    insert into charges (kind, owner_type, owner_id, label, amount, ref)
+    values ('socks', 'registration', v_reg.id, 'RunWild running socks × ' || v_reg.socks_qty, v_set.socks_cents * v_reg.socks_qty, v_reg.ref || '-S');
   end if;
 
   insert into audit_log (actor, action, target, details)
@@ -390,7 +422,28 @@ begin
     update lodge_requests set status = 'paid_in_full' where id = c.owner_id and status = 'confirmed';
   elsif c.kind = 'sponsorship' then
     update sponsorships set status = 'confirmed', expires_at = null where id = c.owner_id and status = 'reserved';
+  elsif c.kind = 'donation' then
+    update donations set status = 'paid' where id = c.owner_id and status = 'awaiting_payment';
   end if;
+end $$;
+
+-- ---------- donations (money only) ----------
+
+create or replace function create_donation(p jsonb) returns donations
+language plpgsql security definer set search_path = public as $$
+declare v donations; s event_settings; v_runners integer := nullif(p->>'runners', '')::int; v_amount integer;
+begin
+  select * into v from donations where client_request_id = p->>'client_request_id';
+  if found then return v; end if;
+  select * into s from event_settings;
+  v_amount := case when v_runners is not null then v_runners * s.donation_per_runner else (p->>'amount_cents')::int end;
+  if v_amount is null or v_amount < s.donation_min_cents then raise exception 'donation is below the minimum' using errcode = 'P0001'; end if;
+  insert into donations (ref, client_request_id, donor, email, phone, runners, amount)
+  values (new_ref('RWM-DF'), p->>'client_request_id', p->>'donor', p->>'email', nullif(p->>'phone', ''), v_runners, v_amount)
+  returning * into v;
+  insert into charges (kind, owner_type, owner_id, label, amount, ref)
+  values ('donation', 'donation', v.id, case when v_runners is not null then 'Kit out ' || v_runners || ' runner(s)' else 'Donation towards shoes and kit' end, v_amount, v.ref);
+  return v;
 end $$;
 
 -- ---------- water points ----------
@@ -430,10 +483,12 @@ language sql stable security definer set search_path = public as $$
                             where s.point = w.point and (s.status = 'confirmed' or (s.status = 'reserved' and s.expires_at > now())) limit 1), 'available'),
         'sponsor', (select s.name from sponsorships s where s.point = w.point and s.status = 'confirmed' and s.display_consent limit 1)) order by w.point)
       from water_points w),
-    'pledged_shoes', (select coalesce(sum(quantity - received_qty), 0) from pledges where item_type = 'shoes' and status in ('pledged', 'partially_received')),
-    'received_shoes', (select count(*) from stock_items where item_type = 'shoes'),
-    'pledged_kit', (select coalesce(sum(quantity - received_qty), 0) from pledges where item_type = 'kit' and status in ('pledged', 'partially_received')),
-    'received_kit', (select count(*) from stock_items where item_type = 'kit')
+    'donations_received', (select coalesce(sum(p.amount), 0) from payments p join charges c on c.id = p.charge_id where c.kind = 'donation'),
+    'runners_funded', (select coalesce(sum(p.amount), 0) / (select donation_per_runner from event_settings) from payments p join charges c on c.id = p.charge_id where c.kind = 'donation'),
+    'runners_needing_kit', (select count(*) from registrations where status <> 'cancelled'
+                              and (coalesce((details->'kit'->>'needsShoes')::boolean, false) or coalesce((details->'kit'->>'needsKit')::boolean, false))),
+    'bought_shoes', (select count(*) from stock_items where item_type = 'shoes'),
+    'bought_kit', (select count(*) from stock_items where item_type = 'kit')
   );
 $$;
 
@@ -460,7 +515,7 @@ begin
 end $$;
 
 do $$ declare t text; begin
-  foreach t in array array['registrations', 'charges', 'sponsorships', 'lodge_requests', 'capacity_pools', 'categories', 'event_settings', 'invite_codes', 'stock_items', 'buddy_matches'] loop
+  foreach t in array array['registrations', 'charges', 'sponsorships', 'donations', 'lodge_requests', 'capacity_pools', 'categories', 'event_settings', 'invite_codes', 'stock_items', 'buddy_matches'] loop
     execute format('drop trigger if exists audit_%1$s on %1$s', t);
     execute format('create trigger audit_%1$s after update on %1$s for each row execute function audit_row()', t);
   end loop;
@@ -470,7 +525,7 @@ end $$;
 
 do $$ declare t text; begin
   foreach t in array array['capacity_pools', 'categories', 'event_settings', 'invite_codes', 'organisers', 'registrations', 'charges', 'payments',
-                           'provider_events', 'audit_log', 'water_points', 'sponsorships', 'lodge_nights', 'lodge_requests', 'pledges', 'stock_items', 'buddy_matches'] loop
+                           'provider_events', 'audit_log', 'water_points', 'sponsorships', 'lodge_nights', 'lodge_requests', 'donations', 'stock_items', 'buddy_matches'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists organisers_all on %I', t);
     execute format('create policy organisers_all on %I for all to authenticated using (is_organiser()) with check (is_organiser())', t);
@@ -486,6 +541,6 @@ drop policy if exists public_read on water_points;   create policy public_read o
 revoke all on all tables in schema public from anon;
 grant select on categories, capacity_pools, lodge_nights, water_points to anon;
 revoke execute on all functions in schema public from public, anon;
-grant execute on function reserve_registration(jsonb), reserve_water_point(jsonb), public_summary(), my_entry(text, text) to anon, authenticated;
+grant execute on function reserve_registration(jsonb), reserve_water_point(jsonb), create_donation(jsonb), public_summary(), my_entry(text, text) to anon, authenticated;
 grant execute on function record_eft(uuid, integer, text), is_organiser() to authenticated;
 -- apply_provider_payment and release_expired run only as the service role (webhook / scheduled job).
