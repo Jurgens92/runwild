@@ -509,6 +509,7 @@ function settingsView(m, D) {
         <div class="field"><label>Launch time</label><input name="launchTime" type="text" value="${esc(S.launchEvent.time)}">${chk('launchTimeOk', S.launchEvent.timeConfirmed, 'Time confirmed')}</div></div>
       <div class="row2"><div class="field"><label>Venue (area)</label><input name="launchVenue" type="text" value="${esc(S.launchEvent.venue)}"></div>
         <div class="field"><label>Exact venue / address</label><input name="launchVenueDetail" type="text" value="${esc(S.launchEvent.venueDetail)}">${chk('launchVenueOk', S.launchEvent.venueConfirmed, 'Exact venue confirmed – publish it')}</div></div>
+      <div class="field"><label>Venue website</label><input name="launchWebsite" type="url" value="${esc(S.launchEvent.website || '')}" placeholder="https://"></div>
       <div class="row2"><div class="field"><label>Map pin latitude</label><input name="launchLat" type="number" step="0.0001" value="${S.launchEvent.lat}"></div>
         <div class="field"><label>Map pin longitude</label><input name="launchLng" type="number" step="0.0001" value="${S.launchEvent.lng}"></div></div>
       <div class="field"><label>Launch description</label><textarea name="launchDesc">${esc(S.launchEvent.description)}</textarea></div>
@@ -592,7 +593,7 @@ function settingsView(m, D) {
       registration: { opensOn: f.opensOn.value },
       launchEvent: { open: f.launchOpen.checked, date: f.launchDate.value, dateConfirmed: f.launchDateOk.checked && !!f.launchDate.value, time: f.launchTime.value.trim(), timeConfirmed: f.launchTimeOk.checked,
         venue: f.launchVenue.value.trim(), venueDetail: f.launchVenueDetail.value.trim(), venueConfirmed: f.launchVenueOk.checked && !!f.launchVenueDetail.value.trim(),
-        lat: Number(f.launchLat.value), lng: Number(f.launchLng.value), description: f.launchDesc.value.trim() },
+        website: f.launchWebsite.value.trim(), lat: Number(f.launchLat.value), lng: Number(f.launchLng.value), description: f.launchDesc.value.trim() },
       socks: { price: cents(f.socksPrice.value), confirmed: f.socksConfirmed.checked, maxPerEntry: parseInt(f.socksMax.value, 10), enabled: f.socksEnabled.checked },
       pools: { combined: { limit: parseInt(f.poolCombined.value, 10) }, community: { limit: parseInt(f.poolCommunity.value, 10) } },
       reservation: { expiryHours: Number(f.expiryHours.value) },
@@ -622,7 +623,7 @@ function checklistView(m, D) {
   const items = [
     ['Launch event date', S.launchEvent.dateConfirmed],
     ['Launch event time', S.launchEvent.timeConfirmed],
-    ['Launch event exact venue at Hazeldean', S.launchEvent.venueConfirmed],
+    ['Launch event venue', S.launchEvent.venueConfirmed],
     ['Exact race start time', S.event.startTimeConfirmed],
     ['Melorane employee entry fee', S.fees.melorane_employee.confirmed],
     ['Community member entry fee', S.fees.community.confirmed],

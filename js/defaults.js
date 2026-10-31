@@ -49,12 +49,13 @@ export function defaultSettings() {
       dateConfirmed: false,
       time: '7:00 am',
       timeConfirmed: false,
-      venue: 'Hazeldean, Pretoria East',
-      venueDetail: '',
-      venueConfirmed: false,
-      // Approximate centre of Hazeldean (near Silver Lakes). Move the pin once the exact venue is known.
-      lat: -25.7796,
-      lng: 28.3870,
+      venue: 'Hazeldean Valley Trails, Pretoria East',
+      venueDetail: 'Silver Lakes Road extension, past Curro Hazeldean, Hazeldean, Pretoria East',
+      venueConfirmed: true,
+      website: 'https://www.hazeldeanvalley.co.za/',
+      // Hazeldean Valley Trails entrance, as given in public race-entry listings for the venue.
+      lat: -25.7816,
+      lng: 28.3871,
       description: 'Meet the team behind Run Wild Melorane, hear how the race supports a new running community at Melorane, and find out how to take part before race entries open.',
     },
     terms: {
