@@ -1,0 +1,7 @@
+# Minimal Supabase CLI config, used when deploying the Edge Function.
+project_id = "runwild"
+
+[functions.api]
+# The site signs organisers in itself (accounts are stored in the database), so the function
+# must accept calls from visitors who have no Supabase login.
+verify_jwt = false

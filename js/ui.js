@@ -1,7 +1,11 @@
 import { Backend, localStorageAdapter } from './backend.js';
+import { RemoteBackend } from './remote.js';
+import { API_URL } from './config.js';
 import { rand, formatDate, formatDateTime, STATUS_LABELS } from './core.js';
 
-export const api = new Backend({ storage: localStorageAdapter() });
+// LIVE: the site talks to the shared database. Otherwise it is the self-contained browser preview.
+export const LIVE = !!API_URL;
+export const api = LIVE ? new RemoteBackend(API_URL) : new Backend({ storage: localStorageAdapter() });
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESC[c]);
