@@ -232,7 +232,7 @@ p { margin: 0 0 1em; }
 form .field { margin-bottom: 20px; }
 label, .legend { display: block; font-weight: 600; margin-bottom: 6px; color: var(--navy); }
 .hint { display: block; font-weight: 400; font-size: .86rem; color: var(--muted); margin-top: 2px; }
-input[type=text], input[type=email], input[type=tel], input[type=number], input[type=date], input[type=password], input[type=url], select, textarea {
+input[type=text], input[type=email], input[type=tel], input[type=number], input[type=date], input[type=time], input[type=password], input[type=url], select, textarea {
   width: 100%; padding: 12px 14px; border: 1px solid #d6cbc1; border-radius: var(--radius-sm); font: inherit; background: #fff; color: var(--ink); min-height: 48px;
 }
 textarea { min-height: 90px; }
