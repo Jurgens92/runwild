@@ -56,7 +56,7 @@ export function defaultSettings() {
     acceptWhileFeeUnconfirmed: true,
     reservation: { expiryHours: 72 },
     // Race entries are closed to the public until this date (Johannesburg time). Organisers can still register people.
-    registration: { opensOn: '2027-02-01' },
+    registration: { mode: 'auto', opensOn: '2027-02-01', opensAt: '00:00' },
     // The launch event comes before race entries open. Anyone can register; personal email addresses are flagged, not refused.
     launchEvent: {
       name: 'Run Wild Melorane launch event',

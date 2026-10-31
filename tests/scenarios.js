@@ -315,6 +315,61 @@ export const scenarios = [
     },
   },
   {
+    name: 'Admins can open race entries early to test, close them, or open at a set time',
+    async run() {
+      const { be, clock } = await setup({ open: false });
+      const admin = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      await be.updateSettings(admin, { registration: { mode: 'open' } });
+      eq((await be.publicSummary()).registration.open, true, 'Open now overrides the date');
+      const test = await be.submitRegistration(person('other'));
+      eq(test.status, 'reserved', 'public can register while switched open');
+      await be.updateSettings(admin, { registration: { mode: 'closed' } });
+      let shut = null;
+      try { await be.submitRegistration(person('other')); } catch (e) { shut = e; }
+      assert(shut && /not open yet/.test(shut.message), 'Closed refuses public entries');
+      // Back to automatic with an 08:00 opening time on a backdated day.
+      await be.updateSettings(admin, { registration: { mode: 'auto', opensOn: '2026-10-23', opensAt: '08:00' } });
+      clock.t = Date.UTC(2026, 9, 23, 5, 59);   // 07:59 SAST
+      eq((await be.publicSummary()).registration.open, false, 'still closed at 07:59');
+      clock.t = Date.UTC(2026, 9, 23, 6, 0);    // 08:00 SAST
+      const pub = await be.publicSummary();
+      eq(pub.registration.open, true, 'open from 08:00');
+      eq(pub.registration.opensLabel, '23 October 2026 at 08:00', 'label shows the time');
+      let badTime = null;
+      try { await be.updateSettings(admin, { registration: { opensAt: '25:00' } }); } catch (e) { badTime = e; }
+      assert(badTime, 'invalid time refused');
+    },
+  },
+  {
+    name: 'Admins can permanently delete test entries, but never ones with money received',
+    async run() {
+      const { be } = await setup();
+      const admin = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      const t = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-15', departure: '2027-04-17' }, transportAck: false, socks: { qty: 1, size: 'M (UK 6–8)' } }));
+      const paid = await be.submitRegistration(person('other'));
+      await payEntry(be, paid.ref, 'evt-keep-me');
+      const idOf = (ref) => be._read((s) => s.registrations.find((r) => r.ref === ref).id);
+      await be.createUser(admin, { email: 'org@erp.ngo', name: 'Org', role: 'organiser', password: 'temporary-pass-9' });
+      const org = (await be.login('org@erp.ngo', 'temporary-pass-9')).token;
+      await be.changePassword(org, 'temporary-pass-9', 'organisers-pass-9');
+      let notAdmin = null;
+      try { await be.organiserAction(org, 'deleteRegistration', { regId: await idOf(t.ref) }); } catch (e) { notAdmin = e; }
+      assert(notAdmin && /Only admins/.test(notAdmin.message), 'organisers cannot delete');
+      await be.organiserAction(admin, 'deleteRegistration', { regId: await idOf(t.ref) });
+      const left = await be._read((s) => ({ regs: s.registrations.map((r) => r.ref), lodge: s.lodgeRequests.length, charges: s.charges.map((c) => c.ref) }));
+      assert(!left.regs.includes(t.ref) && left.lodge === 0 && !left.charges.some((c) => c.startsWith(t.ref)), 'entry, lodge request and charges removed');
+      eq((await usage(be)).combined.used, 1, 'the place is freed');
+      let kept = null;
+      try { await be.organiserAction(admin, 'deleteRegistration', { regId: await idOf(paid.ref) }); } catch (e) { kept = e; }
+      assert(kept && /payments recorded/.test(kept.message), 'paid entry cannot be deleted');
+      const l = await be.submitLaunchRegistration({ firstName: 'Test', surname: 'Person', email: 'test@acme.co.za' });
+      const lid = await be._read((s) => s.launchRegistrations.find((x) => x.ref === l.ref).id);
+      await be.organiserAction(admin, 'deleteLaunch', { id: lid });
+      eq(await be._read((s) => s.launchRegistrations.length), 0, 'launch test registration deleted');
+      assert(await be._read((s) => s.audit.some((a) => a.action === 'registration.deleted')), 'deletion recorded in the audit trail');
+    },
+  },
+  {
     name: 'Launch event: anyone can register; personal emails are flagged but accepted',
     async run() {
       const { be } = await setup({ open: false });

@@ -27,13 +27,14 @@ export async function renderRegister(el) {
   const token = sessionStorage.getItem('rw-org-token');
   // Race entries are closed to the public until the opening date. Organisers can still register people.
   if (!s.registration.open && !token) {
+    const closedTitle = s.registration.mode === 'closed' ? 'Race entries are not open yet' : 'Race entries open ' + esc(s.registration.opensLabel);
     el.innerHTML = `<section class="page-head"><div class="wrap narrow">
-        <span class="eyebrow">Entries</span><h1>Race entries open ${formatDate(s.registration.opensOn)}</h1>
+        <span class="eyebrow">Entries</span><h1>${closedTitle}</h1>
         <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
       </div></section>
       <section class="section tight"><div class="wrap narrow">
         <div class="card">
-          <p class="lead" style="margin-top:0">Entries for the race are closed until <strong>${formatDate(s.registration.opensOn)}</strong>.</p>
+          <p class="lead" style="margin-top:0">${s.registration.mode === 'closed' ? 'Entries for the race are not open yet.' : `Entries for the race are closed until <strong>${esc(s.registration.opensLabel)}</strong>.`}</p>
           <p>In the meantime, join us at the <strong>launch event</strong> at ${esc(s.launch.venue)}. Registering for the launch does not enter you for the race.</p>
           <div class="btn-row"><a class="btn" href="#/launch">Register for the launch event</a><a class="btn plain" href="#/info">Race info</a></div>
         </div>
@@ -55,7 +56,7 @@ export async function renderRegister(el) {
     </div></section>
     <section class="section tight"><div class="wrap narrow">
       ${token ? '<div class="notice sun"><p><strong>Organiser-assisted registration.</strong> You are signed in as an organiser, so this entry will be recorded as registered on someone’s behalf.</p></div>' : ''}
-      ${!s.registration.open && token ? `<div class="notice warn"><p>Race entries are closed to the public until ${formatDate(s.registration.opensOn)}. Only organisers can register people before then.</p></div>` : ''}
+      ${!s.registration.open && token ? `<div class="notice warn"><p>Race entries are closed to the public${s.registration.mode === 'closed' ? '' : ' until ' + esc(s.registration.opensLabel)}. Only organisers can register people until they open.</p></div>` : ''}
       <ol class="steps" id="steps"><li>Category</li><li>Your details</li><li>Options</li><li>Review</li></ol>
       <form id="reg" class="reg-card" novalidate><div id="step"></div>
         <div class="notice bad form-error" hidden></div>

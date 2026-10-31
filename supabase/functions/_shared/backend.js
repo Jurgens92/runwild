@@ -10,7 +10,7 @@
 import {
   CATEGORIES, DISTANCES, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
   normaliseMobile, validMobile, validEmail, nightsBetween, stayNights, lodgeQuote, lodgeBalanceDue, todayJHB,
-  formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES, registrationOpen, isPersonalEmail, emailDomain,
+  formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES, isPersonalEmail, emailDomain,
 } from './core.js';
 import { defaultSettings, sampleData, PREVIEW_USERS, liveSettings } from './defaults.js';
 
@@ -258,7 +258,7 @@ export class Backend {
         fees: clone(st.fees),
         acceptWhileFeeUnconfirmed: st.acceptWhileFeeUnconfirmed,
         reservationHours: st.reservation.expiryHours,
-        registration: { opensOn: st.registration.opensOn, open: registrationOpen(st, now) },
+        registration: { mode: st.registration.mode, opensOn: st.registration.opensOn, opensAt: st.registration.opensAt, opensLabel: opensLabel(st.registration), open: registrationOpen(st, now) },
         launch: clone(st.launchEvent),
         terms: clone(st.terms),
         socks: clone(st.socks),
@@ -400,7 +400,7 @@ export class Backend {
       }
       // Race entries are closed to the public until the opening date. Organisers can still register people.
       if (!organiser && !registrationOpen(s.settings, this.now())) {
-        throw new ValidationError('Race entries open on ' + formatDate(s.settings.registration.opensOn) + '. Until then you can register for the launch event.');
+        throw new ValidationError(s.settings.registration.mode === 'closed' ? 'Race entries are not open yet. Until then you can register for the launch event.' : 'Race entries open on ' + opensLabel(s.settings.registration) + '. Until then you can register for the launch event.');
       }
       this._validateRegistration(s, input);
       const mobile = normaliseMobile(input.mobile);
@@ -901,13 +901,13 @@ export class Backend {
       };
       s.launchRegistrations.push(lr);
       this._audit(s, 'public', 'launch.registered', lr.ref, firstName + ' ' + surname + (personal ? ' (personal email: ' + lr.domain + ')' : ''));
-      this._queueMessage(s, { to: email, channel: 'email', subject: 'Run Wild Melorane launch event – ' + lr.ref, body: 'Thank you, ' + firstName + '. You are registered for the Run Wild Melorane launch event at ' + L.venue + '. This is not a race entry: race entries open on ' + formatDate(s.settings.registration.opensOn) + '.', ref: lr.ref });
+      this._queueMessage(s, { to: email, channel: 'email', subject: 'Run Wild Melorane launch event – ' + lr.ref, body: 'Thank you, ' + firstName + '. You are registered for the Run Wild Melorane launch event at ' + L.venue + '. This is not a race entry: race entries open on ' + opensLabel(s.settings.registration) + '.', ref: lr.ref });
       return this._launchView(s, lr);
     });
   }
 
   _launchView(s, lr) {
-    return { ref: lr.ref, firstName: lr.firstName, surname: lr.surname, email: lr.email, personalEmail: lr.personalEmail, status: lr.status, event: clone(s.settings.launchEvent), raceOpensOn: s.settings.registration.opensOn, raceDate: s.settings.event.date };
+    return { ref: lr.ref, firstName: lr.firstName, surname: lr.surname, email: lr.email, personalEmail: lr.personalEmail, status: lr.status, event: clone(s.settings.launchEvent), raceOpensOn: s.settings.registration.opensOn, raceOpensLabel: s.settings.registration.mode === 'closed' ? '' : opensLabel(s.settings.registration), raceDate: s.settings.event.date };
   }
 
   // ---------- organiser ----------
@@ -1222,6 +1222,32 @@ export class Backend {
           this._audit(s, who, 'buddy.ended', m.id);
           return null;
         }
+        // Admins can permanently remove test records. Anything with money received is kept: cancel it instead.
+        case 'deleteRegistration': {
+          if (me.role !== 'admin') throw new ValidationError('Only admins can delete entries.');
+          const lodgeIds = s.lodgeRequests.filter((l) => l.registrationId === reg.id).map((l) => l.id);
+          const owners = new Set([reg.id, ...lodgeIds]);
+          const chargeIds = new Set(s.charges.filter((c) => owners.has(c.ownerId)).map((c) => c.id));
+          if (s.payments.some((p) => chargeIds.has(p.chargeId) && p.status === 'received')) {
+            throw new ValidationError('This entry has payments recorded, so it cannot be deleted. Cancel it instead.');
+          }
+          s.registrations = s.registrations.filter((r) => r.id !== reg.id);
+          s.lodgeRequests = s.lodgeRequests.filter((l) => !owners.has(l.id));
+          s.charges = s.charges.filter((c) => !chargeIds.has(c.id));
+          s.payments = s.payments.filter((p) => !chargeIds.has(p.chargeId));
+          s.matches = s.matches.filter((m) => m.volunteerId !== reg.id && m.communityId !== reg.id);
+          for (const item of s.stock) if (item.allocatedTo === reg.id) { item.status = 'in_stock'; item.allocatedTo = null; }
+          this._audit(s, who, 'registration.deleted', reg.ref, reg.fullName + ' – permanently deleted');
+          return null;
+        }
+        case 'deleteLaunch': {
+          if (me.role !== 'admin') throw new ValidationError('Only admins can delete launch registrations.');
+          const lr = (s.launchRegistrations || []).find((x) => x.id === args.id);
+          if (!lr) throw new ValidationError('Launch registration not found.');
+          s.launchRegistrations = s.launchRegistrations.filter((x) => x.id !== lr.id);
+          this._audit(s, who, 'launch.deleted', lr.ref, lr.firstName + ' ' + lr.surname + ' – permanently deleted');
+          return null;
+        }
         case 'cancelLaunch': {
           const lr = (s.launchRegistrations || []).find((x) => x.id === args.id);
           if (!lr) throw new ValidationError('Launch registration not found.');
@@ -1252,6 +1278,8 @@ export class Backend {
       for (const [cat, f] of Object.entries(next.fees)) if (f.confirmed && !(Number.isInteger(f.amount) && f.amount >= 0)) e.push('Set an amount for ' + CATEGORIES[cat].label + ' before confirming it.');
       if (!(next.waterPoints.price > 0)) e.push('Water point price must be above zero.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(next.registration.opensOn || '')) e.push('Set the date race entries open.');
+      if (!ENTRY_MODES[next.registration.mode]) e.push('Choose how race entries open.');
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(next.registration.opensAt || '')) e.push('Set the opening time as HH:MM, e.g. 08:00.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(next.event.date || '')) e.push('Set the race date.');
       else if (next.registration.opensOn > next.event.date) e.push('Race entries must open before race day.');
       if (next.launchEvent.date && !/^\d{4}-\d{2}-\d{2}$/.test(next.launchEvent.date)) e.push('The launch event date must be a date.');

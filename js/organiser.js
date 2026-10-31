@@ -1,5 +1,5 @@
 import { api, LIVE, esc, $, $$, toast, statusPill, sampleBadge, rand, formatDate, formatDateTime, tbc, showErrors, clearErrors } from './ui.js';
-import { CATEGORIES, DISTANCES, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive } from './core.js';
+import { CATEGORIES, DISTANCES, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES } from './core.js';
 import { AuthError, ROLES } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
 
@@ -107,6 +107,17 @@ function draw(el, D) {
 
 // ---------- helpers ----------
 
+// "Race entries are OPEN (switched on by hand)" etc., for the Overview and Settings.
+function entriesStatus(D) {
+  const R = D.settings.registration;
+  const open = registrationOpen(D.settings, D.now);
+  const when = opensLabel(R);
+  if (R.mode === 'open') return `Race entries are <strong>open</strong> – switched on by hand (Settings → Race entries). Switch back to Automatic after testing.`;
+  if (R.mode === 'closed') return `Race entries are <strong>closed</strong> – switched off by hand. Organisers can still register people.`;
+  return open ? `Race entries are <strong>open</strong> – opened automatically on ${esc(when)}.`
+    : `Race entries are <strong>closed</strong> – they open automatically on <strong>${esc(when)}</strong> (in ${Math.ceil((registrationOpensAt(R) - D.now) / 86400000)} days). Organisers can still register people.`;
+}
+
 const regById = (D, id) => D.registrations.find((r) => r.id === id);
 const chargesFor = (D, ownerId) => D.chargeViews.filter((c) => c.ownerId === ownerId);
 const entryCharge = (D, r) => D.chargeViews.find((c) => c.ownerId === r.id && c.kind === 'entry');
@@ -209,7 +220,7 @@ const VIEWS = {
     ];
     m.innerHTML = `<h2>Overview</h2>
       <p class="small muted">Signed in as ${esc(D.me.email)} · ${formatDateTime(D.now)} SAST</p>
-      <p class="small">Race entries ${D.now >= Date.parse(D.settings.registration.opensOn + 'T00:00:00+02:00') ? '<strong>open</strong>' : 'open to the public on <strong>' + formatDate(D.settings.registration.opensOn) + '</strong> (you can still register people from Participants)'} · launch event registrations: <strong>${(D.launchRegistrations || []).filter((x) => x.status !== 'cancelled').length}</strong></p>
+      <p class="small">${entriesStatus(D)} · launch event registrations: <strong>${(D.launchRegistrations || []).filter((x) => x.status !== 'cancelled').length}</strong></p>
       <div class="kpis">
         <div class="kpi"><span class="label">${esc(POOLS.combined.label)}</span><div class="stat">${u.combined.used} / ${u.combined.limit}</div><div class="small">${u.combined.remaining} remaining · ${u.combined.confirmed} confirmed, ${u.combined.reserved} reserved</div></div>
         <div class="kpi"><span class="label">Community members</span><div class="stat">${u.community.used} / ${u.community.limit}</div><div class="small">${u.community.remaining} remaining · ${u.community.confirmed} confirmed, ${u.community.reserved} reserved</div></div>
@@ -244,8 +255,9 @@ const VIEWS = {
       const list = $('#fp').checked ? rs.filter((r) => r.personalEmail) : rs;
       $('#list').innerHTML = table(['Ref', 'Name', 'Email', 'Email type', 'Registered', 'Status', ''], list.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.firstName)} ${esc(r.surname)}${sampleBadge(r)}</td><td>${esc(r.email)}</td>
         <td>${r.personalEmail ? statusPill('pending', 'Personal – ' + r.domain) : statusPill('confirmed', 'Business')}</td><td>${formatDateTime(r.createdAt)}</td><td>${statusPill(r.status)}</td>
-        <td>${r.status !== 'cancelled' ? `<button class="btn small danger" data-lx="${r.id}">Cancel</button>` : ''}</td></tr>`), 'Nobody has registered for the launch event yet.');
+        <td><div class="btn-row">${r.status !== 'cancelled' ? `<button class="btn small danger" data-lx="${r.id}">Cancel</button>` : ''}${D.me.role === 'admin' ? `<button class="btn small plain" data-ldel="${r.id}" title="Permanently remove, e.g. a test registration">Delete</button>` : ''}</div></td></tr>`), 'Nobody has registered for the launch event yet.');
       $$('[data-lx]', m).forEach((b) => b.addEventListener('click', () => confirm('Cancel this launch registration?') && act('cancelLaunch', { id: b.dataset.lx }, 'Cancelled')));
+      $$('[data-ldel]', m).forEach((b) => b.addEventListener('click', () => confirm('Permanently delete this launch registration? Use this for test registrations. It cannot be undone (the audit trail keeps a note).') && act('deleteLaunch', { id: b.dataset.ldel }, 'Deleted')));
     };
     $('#fp').addEventListener('change', render);
     render();
@@ -270,11 +282,12 @@ const VIEWS = {
         const ch = entryCharge(D, r);
         return `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${r.distance === '21k' ? '21 km' : '5 km'}</td><td>${regStatus(D, r)}</td>
           <td class="num">${ch ? rand(ch.outstanding) : r.holdReason === 'fee_unconfirmed' ? tbc('Fee TBC') : '—'}</td>
-          <td><div class="btn-row"><button class="btn small plain" data-view="${r.id}">View</button>${r.status === 'waitlisted' ? `<button class="btn small" data-offer="${r.id}">Offer place</button>` : ''}${r.status !== 'cancelled' ? `<button class="btn small danger" data-cancel="${r.id}">Cancel</button>` : ''}</div></td></tr>`;
+          <td><div class="btn-row"><button class="btn small plain" data-view="${r.id}">View</button>${r.status === 'waitlisted' ? `<button class="btn small" data-offer="${r.id}">Offer place</button>` : ''}${r.status !== 'cancelled' ? `<button class="btn small danger" data-cancel="${r.id}">Cancel</button>` : ''}${D.me.role === 'admin' ? `<button class="btn small plain" data-del="${r.id}" title="Permanently remove, e.g. a test entry">Delete</button>` : ''}</div></td></tr>`;
       }));
       $$('[data-view]').forEach((b) => b.addEventListener('click', () => participantDialog(D, regById(D, b.dataset.view))));
       $$('[data-offer]').forEach((b) => b.addEventListener('click', () => act('offerPlace', { regId: b.dataset.offer }, 'Place offered')));
       $$('[data-cancel]').forEach((b) => b.addEventListener('click', () => { const reason = prompt('Reason for cancelling'); if (reason) act('cancelRegistration', { regId: b.dataset.cancel, reason }, 'Entry cancelled'); }));
+      $$('[data-del]').forEach((b) => b.addEventListener('click', () => { const r = regById(D, b.dataset.del); if (confirm('Permanently delete ' + r.ref + ' (' + r.fullName + ')? Use this for test entries. Its place, lodge request and unpaid charges are removed too. It cannot be undone (the audit trail keeps a note).')) act('deleteRegistration', { regId: r.id }, 'Entry deleted'); }));
     };
     ['q', 'fc', 'fd', 'fs'].forEach((id) => $('#' + id).addEventListener('input', render));
     $('#csv').addEventListener('click', () => csvDownload('participants', ['Reference', 'Name', 'Category', 'Distance', 'Status', 'Verification', 'Mobile', 'Email', 'Emergency name', 'Emergency number', 'Employer', 'Shirt size', 'Socks pairs', 'Sock size', 'Needs shoes', 'Needs kit', 'Shoe size', 'Shorts size', 'Entry billed', 'Entry paid', 'Entry outstanding', 'Registered', 'Assisted', 'Sample'],
@@ -538,6 +551,13 @@ function settingsView(m, D) {
   m.innerHTML = `<h2>Event settings</h2>
   <p class="muted">Every change is recorded in the audit trail. Items marked “confirmed” are shown to the public as final.</p>
   <form id="set" novalidate>
+    <div class="card" style="margin-bottom:16px;border-top:3px solid var(--blue)"><h3>Race entries</h3>
+      <p class="small">${entriesStatus(D)}</p>
+      <div class="row3"><div class="field"><label>How entries open</label><select name="entryMode">${Object.entries(ENTRY_MODES).map(([k, v]) => `<option value="${k}" ${S.registration.mode === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+        <div class="field"><label>Opening date</label><input name="opensOn" type="date" value="${esc(S.registration.opensOn)}"></div>
+        <div class="field"><label>Opening time (SAST)</label><input name="opensAt" type="time" value="${esc(S.registration.opensAt || '00:00')}"></div></div>
+      <p class="small muted"><strong>To test registration:</strong> choose “Open now” (or set the opening date in the past), save, and register on the public Register page. Afterwards choose “Automatic” again – the opening date above is kept – and delete your test entries under Participants. While entries are open to test, members of the public can register too.</p>
+    </div>
     <div class="card" style="margin-bottom:16px"><h3>Race day</h3>
       <div class="row2"><div class="field"><label>Race date</label><input name="raceDate" type="date" value="${esc(S.event.date)}"></div><div class="field"><label>Venue</label><input name="raceVenue" type="text" value="${esc(S.event.venue)}"></div></div>
       <div class="row2"><div class="field"><label>Exact start time</label><input name="startTime" type="text" value="${esc(S.event.startTime)}" placeholder="e.g. 06:00"></div><div class="field" style="align-self:end">${chk('startTimeConfirmed', S.event.startTimeConfirmed, 'Start time confirmed – publish it')}</div></div>
@@ -545,9 +565,8 @@ function settingsView(m, D) {
       <div class="row2"><div class="field"><label>Full pickup address in PJ</label><input name="pickupFullAddress" type="text" value="${esc(S.event.pickupFullAddress)}"></div><div class="field" style="align-self:end">${chk('pickupAddressConfirmed', S.event.pickupAddressConfirmed, 'Address confirmed – publish it')}</div></div>
       <div class="field"><label>Where proceeds go (shown on home page and form)</label><textarea name="proceedsText">${esc(S.event.proceedsText)}</textarea></div>
     </div>
-    <div class="card" style="margin-bottom:16px"><h3>Race entries and launch event</h3>
-      <div class="row2"><div class="field"><label>Race entries open on <span class="hint">Closed to the public before this date</span></label><input name="opensOn" type="date" value="${esc(S.registration.opensOn)}"></div>
-        <div class="field" style="align-self:end">${chk('launchOpen', S.launchEvent.open, 'Launch event registration open')}</div></div>
+    <div class="card" style="margin-bottom:16px"><h3>Launch event</h3>
+      ${chk('launchOpen', S.launchEvent.open, 'Launch event registration open')}
       <div class="row3"><div class="field"><label>Launch date</label><input name="launchDate" type="date" value="${esc(S.launchEvent.date)}"></div>
         <div class="field" style="align-self:end">${chk('launchDateOk', S.launchEvent.dateConfirmed, 'Date confirmed')}</div>
         <div class="field"><label>Launch time</label><input name="launchTime" type="text" value="${esc(S.launchEvent.time)}">${chk('launchTimeOk', S.launchEvent.timeConfirmed, 'Time confirmed')}</div></div>
@@ -647,7 +666,7 @@ function settingsView(m, D) {
     const patch = {
       event: { date: f.raceDate.value, venue: f.raceVenue.value.trim() || S.event.venue, startTime: f.startTime.value.trim(), startTimeConfirmed: f.startTimeConfirmed.checked && !!f.startTime.value.trim(), pickupPlace: f.pickupPlace.value.trim(), pickupTime: f.pickupTime.value.trim(), pickupFullAddress: f.pickupFullAddress.value.trim(), pickupAddressConfirmed: f.pickupAddressConfirmed.checked && !!f.pickupFullAddress.value.trim(), proceedsText: f.proceedsText.value.trim(),
         startLocation: f.startLocation.value.trim(), finishLocation: f.finishLocation.value.trim(), routeDescription: f.routeDescription.value.trim(), routeConfirmed: f.routeConfirmed.checked },
-      registration: { opensOn: f.opensOn.value },
+      registration: { mode: f.entryMode.value, opensOn: f.opensOn.value, opensAt: f.opensAt.value || '00:00' },
       launchEvent: { open: f.launchOpen.checked, date: f.launchDate.value, dateConfirmed: f.launchDateOk.checked && !!f.launchDate.value, time: f.launchTime.value.trim(), timeConfirmed: f.launchTimeOk.checked,
         venue: f.launchVenue.value.trim(), venueDetail: f.launchVenueDetail.value.trim(), venueConfirmed: f.launchVenueOk.checked && !!f.launchVenueDetail.value.trim(),
         website: f.launchWebsite.value.trim(), mapsUrl: f.launchMaps.value.trim(), lat: Number(f.launchLat.value), lng: Number(f.launchLng.value), description: f.launchDesc.value.trim() },

@@ -64,7 +64,7 @@ export function raceCta(s, { cls = 'btn', label = 'Register now' } = {}) {
   return `<a class="${cls}" href="#/launch">Register for the launch event</a>`;
 }
 
-function opensText(s) { return 'Race entries open ' + formatDate(s.registration.opensOn); }
+function opensText(s) { return s.registration.mode === 'closed' ? 'Race entries are not open yet' : 'Race entries open ' + s.registration.opensLabel; }
 
 // Launch event details as table rows. Unconfirmed items say so.
 function launchRows(L) {
@@ -312,7 +312,7 @@ async function launch(el) {
             ${launchRows(r.event)}
           </tbody></table>
           ${r.personalEmail ? '<p class="small muted">You registered with a personal email address. That is fine – if you have a work address, you are welcome to let us know.</p>' : ''}
-          <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the ${formatDate(r.raceDate)} race open on ${formatDate(r.raceOpensOn)}. We will email you once the launch date is confirmed.</p></div>
+          <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the ${formatDate(r.raceDate)} race ${r.raceOpensLabel ? 'open on ' + esc(r.raceOpensLabel) : 'are not open yet'}. We will email you once the launch date is confirmed.</p></div>
           <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
           <div class="btn-row"><a class="btn plain" href="#/">Back to home</a><a class="btn plain" href="#/info">Race info</a></div>
         </div></section>`;
@@ -653,7 +653,7 @@ async function info(el) {
           <tr><th>Distances</th><td>21 km trail · 5 km run/walk</td></tr>
           ${routeFacts(ev, 'rows')}
           <tr><th>Community pickup</th><td>${esc(ev.pickupPlace)}, ${esc(ev.pickupTime)}</td></tr>
-          <tr><th>Race entries</th><td>${s.registration.open ? 'Open' : 'Open ' + formatDate(s.registration.opensOn)}</td></tr>
+          <tr><th>Race entries</th><td>${s.registration.open ? 'Open' : s.registration.mode === 'closed' ? 'Not open yet' : 'Open ' + esc(s.registration.opensLabel)}</td></tr>
         </tbody></table>
         <div class="btn-row" style="margin-top:20px">${raceCta(s, { label: 'Register' })}</div>
       </div>
