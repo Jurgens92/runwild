@@ -4,11 +4,12 @@
 create or replace function t_person(cat text, i int, dist text default '21k', code text default null) returns jsonb language sql as $$
   select jsonb_build_object('client_request_id', 'req-' || cat || '-' || i, 'category', cat, 'distance', dist,
     'full_name', 'Person ' || cat || ' ' || i, 'mobile', '082' || lpad(i::text, 7, '0'), 'email', 'p' || i || '@example.org',
-    'emergency_name', 'Contact', 'emergency_mobile', '0830000000', 'terms_accepted', true, 'invite_code', code)
+    'emergency_name', 'Contact', 'emergency_mobile', '0830000000', 'terms_accepted', true, 'invite_code', code, 'shirt_size', 'M')
 $$;
 
-insert into invite_codes values ('GROUP-TEST', 'group_employee', 1000, 0), ('MEL-TEST', 'melorane_employee', 1000, 0);
-update event_settings set accept_unconfirmed_fee = true;
+insert into invite_codes values ('GROUP-TEST', 'group_employee', 1000, 0), ('MEL-TEST', 'melorane_employee', null, 0);
+-- Open race entries for the race tests; check 12 tests the closed state.
+update event_settings set accept_unconfirmed_fee = true, registration_opens_on = current_date - 1;
 
 -- 1. Combined pool of 34: last accepted, next waitlisted; both distances share it.
 do $$ declare r registrations; begin
@@ -88,3 +89,48 @@ do $$ declare blocked boolean := false; s jsonb; begin
   raise notice 'PASS anonymous visitors see aggregates only';
 end $$;
 reset role;
+
+-- 9. Shirt size is required for every entry; Melorane code has no usage limit.
+do $$ declare ok boolean := false; r registrations; begin
+  begin perform reserve_registration(t_person('other', 300) - 'shirt_size'); exception when others then ok := true; end;
+  assert ok, 'entry without a shirt size should be refused';
+  for i in 1..120 loop r := reserve_registration(t_person('melorane_employee', 400 + i, '5k', 'MEL-TEST')); assert r.verification = 'verified', 'unlimited code'; end loop;
+  raise notice 'PASS shirt size required; Melorane code unlimited';
+end $$;
+
+-- 10. Canvas Lodge minimum two nights.
+do $$ declare ok boolean := false; r registrations; begin
+  select * into r from registrations where full_name = 'Person other 34';
+  begin insert into lodge_requests (registration_id, arrival, departure, total, deposit, balance, status) values (r.id, '2027-04-16', '2027-04-17', 550000, 110000, 440000, 'requested');
+  exception when others then ok := true; end;
+  assert ok, 'one-night lodge booking should be refused';
+  insert into lodge_requests (registration_id, arrival, departure, total, deposit, balance, status) values (r.id, '2027-04-15', '2027-04-17', 1100000, 220000, 880000, 'requested');
+  raise notice 'PASS Canvas Lodge minimum stay of two nights';
+end $$;
+
+-- 11. Socks charged separately once the price is set; donations are money only.
+do $$ declare r registrations; d donations; begin
+  update event_settings set socks_cents = 8000;
+  r := reserve_registration(t_person('melorane_employee', 600, '5k', 'MEL-TEST') || '{"socks_qty": 2, "socks_size": "M (UK 6–8)"}');
+  assert (select amount from charges where owner_id = r.id and kind = 'socks') = 16000, 'sock charge';
+  d := create_donation('{"client_request_id":"d1","donor":"D","email":"d@x.org","runners":2}');
+  assert d.amount = 500000, 'two runners at R2,500';
+  perform apply_provider_payment('evt-don', d.ref, 500000);
+  assert (select status from donations where id = d.id) = 'paid', 'donation paid';
+  assert (public_summary()->>'runners_funded')::int = 2, 'runners funded';
+  raise notice 'PASS socks add-on charge and monetary donations';
+end $$;
+
+-- 12. Race entries closed to the public before the opening date; launch event open to anyone, personal emails flagged.
+do $$ declare ok boolean := false; a launch_registrations; b launch_registrations; dup boolean := false; begin
+  update event_settings set registration_opens_on = current_date + 30;
+  begin perform reserve_registration(t_person('other', 900)); exception when others then ok := true; end;
+  assert ok, 'race entry should be refused before the opening date';
+  a := register_for_launch('{"client_request_id":"l1","first_name":"Thandi","surname":"Nkosi","email":"thandi@acme.co.za"}');
+  b := register_for_launch('{"client_request_id":"l2","first_name":"Pieter","surname":"Smit","email":"Pieter@Gmail.com"}');
+  assert not a.personal_email and b.personal_email, 'gmail flagged, business not';
+  begin perform register_for_launch('{"client_request_id":"l3","first_name":"P","surname":"S","email":"pieter@gmail.com"}'); exception when others then dup := true; end;
+  assert dup, 'same email twice refused';
+  update event_settings set registration_opens_on = current_date - 1;
+  raise notice 'PASS race entries closed before opening date; launch registration flags personal email';
+end $$;

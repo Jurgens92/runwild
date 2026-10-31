@@ -3,12 +3,22 @@
 
 export const TZ = 'Africa/Johannesburg';
 
+// kitOptions: the participant can ask ERP for running shoes and kit (bought with donated funds).
 export const CATEGORIES = {
-  group_employee: { label: 'Group employee', pool: 'combined', employee: true, emailRequired: true, adultOptions: true },
-  melorane_employee: { label: 'Melorane employee', pool: null, employee: true, emailRequired: false, adultOptions: false },
-  other: { label: 'Other participant', pool: 'combined', employee: false, emailRequired: true, adultOptions: true },
-  community: { label: 'Community member', pool: 'community', employee: false, emailRequired: false, adultOptions: false },
+  group_employee: { label: 'Group employee', pool: 'combined', employee: true, emailRequired: true, adultOptions: true, kitOptions: false },
+  melorane_employee: { label: 'Melorane employee', pool: null, employee: true, emailRequired: false, adultOptions: false, kitOptions: true },
+  other: { label: 'Other participant', pool: 'combined', employee: false, emailRequired: true, adultOptions: true, kitOptions: false },
+  community: { label: 'Community member', pool: 'community', employee: false, emailRequired: false, adultOptions: false, kitOptions: true },
 };
+
+// Every entry includes a RunWild running shirt.
+export const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+export const SOCK_SIZES = ['S (UK 3–5)', 'M (UK 6–8)', 'L (UK 9–11)', 'XL (UK 12+)'];
+
+// An invitation code with maxUses null has no usage limit.
+export function codeHasUses(code) {
+  return !!code && (code.maxUses === null || code.maxUses === undefined || code.uses < code.maxUses);
+}
 
 export const POOLS = {
   combined: { label: 'Group employees + other participants' },
@@ -159,4 +169,34 @@ export function validMobile(m) {
 
 export function validEmail(e) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+}
+
+// ---------- race entries opening date ----------
+
+// Race entries open on settings.registration.opensOn (a Johannesburg date). Before then the race is closed to the public.
+export function registrationOpen(settings, now = Date.now()) {
+  const on = settings.registration && settings.registration.opensOn;
+  return !on || todayJHB(new Date(now)) >= on;
+}
+
+// ---------- launch event ----------
+
+// Free or personal mailbox providers. A launch registration with one of these is flagged for the organisers, never refused.
+export const PERSONAL_EMAIL_DOMAINS = [
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.za', 'yahoo.co.uk', 'ymail.com', 'rocketmail.com',
+  'hotmail.com', 'hotmail.co.za', 'hotmail.co.uk', 'outlook.com', 'outlook.co.za', 'live.com', 'live.co.za', 'live.co.uk', 'msn.com',
+  'icloud.com', 'me.com', 'mac.com', 'aol.com', 'protonmail.com', 'proton.me', 'pm.me', 'gmx.com', 'gmx.net', 'mail.com',
+  'yandex.com', 'zohomail.com', 'webmail.co.za', 'mweb.co.za', 'telkomsa.net', 'vodamail.co.za', 'absamail.co.za',
+  'iafrica.com', 'lantic.net', 'afrihost.co.za', 'cybersmart.co.za', 'vox.co.za', 'polka.co.za',
+];
+
+export function emailDomain(email) {
+  const m = /@([^@\s]+)$/.exec(String(email || '').trim().toLowerCase());
+  return m ? m[1] : '';
+}
+
+export function isPersonalEmail(email) {
+  const d = emailDomain(email);
+  if (!d) return false;
+  return PERSONAL_EMAIL_DOMAINS.includes(d) || /^(yahoo|hotmail|outlook|live|gmail)\./.test(d);
 }

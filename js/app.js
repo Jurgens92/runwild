@@ -1,14 +1,15 @@
 import { api, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
-import { CATEGORIES, DISTANCES, lodgeQuote, nightsBetween, uid, addDays } from './core.js';
+import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
-import { routeExplorer } from './route.js';
+import { routeExplorer, routeFacts } from './route.js';
 
 const app = $('#app');
 
 const routes = {
   '': home,
   register: renderRegister,
+  launch,
   lodge,
   'water-points': waterPoints,
   donate,
@@ -54,6 +55,21 @@ function setTitle(t) { app.dataset.title = t; }
 
 const BACK_INVOLVED = { href: '#/get-involved', label: 'Get involved' };
 
+// "Register now" for the race, or – before race entries open – a route to the launch event.
+export function raceCta(s, { cls = 'btn', label = 'Register now' } = {}) {
+  if (s.registration.open) return `<a class="${cls}" href="#/register">${label}</a>`;
+  return `<a class="${cls}" href="#/launch">Register for the launch event</a>`;
+}
+
+function opensText(s) { return 'Race entries open ' + formatDate(s.registration.opensOn); }
+
+// Launch event details as table rows. Unconfirmed items say so.
+function launchRows(L) {
+  return `<tr><th>Date</th><td>${L.dateConfirmed && L.date ? formatDate(L.date) : tbc()}</td></tr>
+    <tr><th>Time</th><td>${esc(L.time)}${L.timeConfirmed ? '' : ' <span class="small muted">(provisional)</span>'}</td></tr>
+    <tr><th>Where</th><td>${esc(L.venue)}${L.venueConfirmed && L.venueDetail ? '<br>' + esc(L.venueDetail) : '<br><span class="small muted">Exact venue to be confirmed</span>'}</td></tr>`;
+}
+
 function startLine(ev) {
   return ev.startTime ? esc(ev.startTime) : 'Early start – exact time to be confirmed';
 }
@@ -61,14 +77,9 @@ function startLine(ev) {
 // ---------------- Home ----------------
 
 function placesPill(pool) {
-  if (!pool) return '<span class="places open">Open entry</span>';
+  if (!pool) return '<span class="places open">Unlimited entries</span>';
   if (pool.full) return '<span class="places full">Waitlist open</span>';
   return `<span class="places ${pool.remaining <= 5 ? 'low' : ''}">${pool.remaining} of ${pool.limit} left</span>`;
-}
-
-function feeText(fee) {
-  if (!fee.confirmed) return tbc();
-  return fee.amount ? rand(fee.amount) : 'Free';
 }
 
 const ICONS = {
@@ -89,10 +100,10 @@ function involvedTiles(s) {
     </a>
     <a class="tile" href="#/donate">
       <span class="icon">${ICONS.shoe}</span>
-      <h3>Donate shoes or kit</h3>
-      <p>Help equip up to ${s.donations.target} community runners with shoes, a vest and shorts.</p>
-      <span class="meta">${s.donations.progress.shoesRequested} runners need shoes · ${s.donations.progress.kitRequested} need kit</span>
-      <span class="link-arrow">Pledge a donation</span>
+      <h3>Kit out a runner</h3>
+      <p>${rand(s.donations.perRunner)} buys one runner ${kitList(s.donations.items)}. ERP buys and hands out everything.</p>
+      <span class="meta">${s.donations.progress.runnersFunded} runner${s.donations.progress.runnersFunded === 1 ? '' : 's'} funded · ${s.donations.progress.runnersNeedingKit} asked for kit</span>
+      <span class="link-arrow">Donate</span>
     </a>
     <a class="tile" href="#/run-buddy">
       <span class="icon">${ICONS.buddy}</span>
@@ -102,6 +113,12 @@ function involvedTiles(s) {
       <span class="link-arrow">How it works</span>
     </a>
   </div>`;
+}
+
+// "Running shoes, Shorts, Shirt" → "running shoes, shorts, shirt, socks and a cap"
+function kitList(items) {
+  const xs = items.map((x) => x.toLowerCase()).map((x) => (x === 'cap' ? 'a cap' : x));
+  return xs.length > 1 ? xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1] : xs.join('');
 }
 
 async function home(el) {
@@ -117,10 +134,10 @@ async function home(el) {
       <p class="place">MELORANE</p>
       <p class="when">Saturday 17 April 2027<span>·</span>21 km trail run &amp; 5 km run/walk</p>
       <div class="btn-row">
-        <a class="btn" href="#/register">Register now</a>
+        ${raceCta(s)}
         <a class="btn ghost" href="#/info">Race info</a>
       </div>
-      ${days > 0 ? `<p class="hero-note">${days} days to go · limited places</p>` : ''}
+      ${s.registration.open ? (days > 0 ? `<p class="hero-note">${days} days to go · limited places</p>` : '') : `<p class="hero-note">${opensText(s)} · limited places</p>`}
     </div>
     <div class="hero-land" role="img" aria-label="Red dirt track through the bushveld at sunrise"></div>
   </section>
@@ -129,8 +146,15 @@ async function home(el) {
     <div><span class="label">Date</span><strong>17 April 2027</strong></div>
     <div><span class="label">Start</span><strong>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early morning'}</strong></div>
     <div><span class="label">Venue</span><strong>Melorane ERP Game Reserve</strong></div>
-    <div><span class="label">Entry</span><strong>From R1,000</strong></div>
+    <div><span class="label">Distances</span><strong>21 km · 5 km</strong></div>
   </div>
+
+  ${s.launch.open ? `<section class="launch-band">
+    <div class="wrap">
+      <div><span class="eyebrow">Before the race</span><strong>Launch event</strong> · ${esc(s.launch.venue)} · ${esc(s.launch.time)} · ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'date to be confirmed'}</div>
+      <a class="link-arrow" href="#/launch">Register for the launch</a>
+    </div>
+  </section>` : ''}
 
   <section class="section">
     <div class="wrap split">
@@ -151,7 +175,7 @@ async function home(el) {
       <div class="section-head center">
         <span class="eyebrow">The route</span>
         <h2>Two ways to run wild</h2>
-        <p class="lead">A 21 km trail through the reserve, or a 5 km run/walk at your own pace. Both start and finish at the reserve gate.</p>
+        <p class="lead">A 21 km trail through the reserve, or a 5 km run/walk at your own pace. The start and finish locations and the exact route are still being confirmed.</p>
       </div>
       <div class="rt" id="route"></div>
     </div>
@@ -165,11 +189,13 @@ async function home(el) {
         <p class="lead">Places are limited for each group, and both distances share the same places.</p>
       </div>
       <div class="entries">
-        <div class="entry-row"><div><h3>Group employees &amp; other participants</h3><p>Charitable entry, supporting the local running community</p></div>${placesPill(s.pools.combined)}<div class="fee">R1,000</div></div>
-        <div class="entry-row"><div><h3>Community members</h3><p>Pickup from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)}</p></div>${placesPill(s.pools.community)}<div class="fee">${feeText(s.fees.community)}</div></div>
-        <div class="entry-row"><div><h3>Melorane employees</h3><p>Additional to the limited places · verified by the organisers</p></div>${placesPill(null)}<div class="fee">${feeText(s.fees.melorane_employee)}</div></div>
+        <div class="entry-row"><div><h3>Group employees &amp; other participants</h3><p>Charitable entry, supporting the local running community</p></div>${placesPill(s.pools.combined)}</div>
+        <div class="entry-row"><div><h3>Community members</h3><p>Pickup from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)}</p></div>${placesPill(s.pools.community)}</div>
+        <div class="entry-row"><div><h3>Melorane employees</h3><p>Additional to the limited places · verified by the organisers</p></div>${placesPill(null)}</div>
       </div>
-      <div class="btn-row" style="justify-content:center;margin-top:36px"><a class="btn navy" href="#/register">Register now</a></div>
+      <p class="small muted center" style="margin-top:16px">Every entry includes a RunWild running shirt. Your entry fee is shown once you choose your category when you register.</p>
+      <div class="btn-row" style="justify-content:center;margin-top:36px">${raceCta(s, { cls: 'btn navy' })}</div>
+      ${s.registration.open ? '' : `<p class="small muted center" style="margin-top:12px">${opensText(s)}.</p>`}
     </div>
   </section>
 
@@ -178,14 +204,14 @@ async function home(el) {
       <div>
         <span class="eyebrow">Race day</span>
         <h2>Saturday, 17 April 2027</h2>
-        <p>Start and finish at Melorane ERP Game Reserve. Want to wake up at the start line? Stay the night before at Canvas Lodge – campfires, starry skies and the bush all around.</p>
+        <p>Race day is at Melorane ERP Game Reserve. Want to wake up at the start line? Stay at Canvas Lodge (minimum ${s.lodge.minNights} nights) – campfires, starry skies and the bush all around.</p>
         <div class="btn-row" style="margin-top:24px"><a class="btn light" href="#/lodge">Stay at Canvas Lodge</a></div>
       </div>
       <ol class="timeline">
         <li><span class="t">${esc(ev.pickupTime)}</span><span><strong>Community pickup</strong>${esc(ev.pickupPlace)}</span></li>
         <li><span class="t">Early</span><span><strong>Arrive at the reserve</strong>Everyone else makes their own way there</span></li>
         <li><span class="t">${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Sunrise'}</span><span><strong>Race start</strong>${ev.startTime && ev.startTimeConfirmed ? '21 km and 5 km' : 'Exact time to be confirmed'}</span></li>
-        <li><span class="t">Finish</span><span><strong>Celebrate together</strong>Back where it all began</span></li>
+        <li><span class="t">Finish</span><span><strong>Celebrate together</strong>${ev.routeConfirmed && ev.finishLocation ? esc(ev.finishLocation) : 'Finish location to be confirmed'}</span></li>
       </ol>
     </div>
   </section>
@@ -195,7 +221,7 @@ async function home(el) {
       <div class="section-head center">
         <span class="eyebrow">Not running?</span>
         <h2>Get involved</h2>
-        <p class="lead">Many community runners need shoes and kit to take part. That’s where you come in.</p>
+        <p class="lead">Many community runners need shoes and kit to take part. Your donation lets ERP buy it for them.</p>
       </div>
       ${involvedTiles(s)}
     </div>
@@ -204,19 +230,92 @@ async function home(el) {
   <section class="section sand cta-band">
     <div class="wrap narrow">
       <h2>See you on the trail.</h2>
-      <p class="lead">Places are limited. Secure yours today.</p>
-      <div class="btn-row"><a class="btn" href="#/register">Register now</a><a class="btn plain" href="#/info">Read the FAQ</a></div>
+      <p class="lead">${s.registration.open ? 'Places are limited. Secure yours today.' : opensText(s) + '. Join us at the launch event first.'}</p>
+      <div class="btn-row">${raceCta(s)}<a class="btn plain" href="#/info">Read the FAQ</a></div>
     </div>
   </section>`;
-  routeExplorer($('#route'));
+  routeExplorer($('#route'), { event: ev });
 }
 
 async function getInvolved(el) {
   setTitle('Get involved');
   const s = await api.publicSummary();
   el.innerHTML = `
-  ${pageHead('Get involved', 'Help more runners reach the start line', 'Sponsor a water point, donate shoes or kit, or support a community runner as a Run Buddy. Sponsorships and donations never use a race place.')}
+  ${pageHead('Get involved', 'Help more runners reach the start line', 'Sponsor a water point, donate towards shoes and kit, or support a community runner as a Run Buddy. Sponsorships and donations never use a race place.')}
   <section class="section"><div class="wrap">${involvedTiles(s)}</div></section>`;
+}
+
+// ---------------- Launch event ----------------
+
+async function launch(el) {
+  setTitle('Launch event');
+  const s = await api.publicSummary();
+  const L = s.launch;
+  const requestId = uid();
+  const d = 0.018;
+  const bbox = [L.lng - d, L.lat - d * 0.6, L.lng + d, L.lat + d * 0.6].map((x) => x.toFixed(4)).join(',');
+  el.innerHTML = `
+  ${pageHead('Launch event', 'Run Wild Melorane launch', esc(L.description))}
+  <section class="section">
+    <div class="wrap split top">
+      <div>
+        <div class="notice"><p><strong>This is the launch event, not the race.</strong> Registering here does not enter you for the 17 April 2027 race. ${s.registration.open ? 'Race entries are open now – <a href="#/register">register for the race</a>.' : opensText(s) + '.'}</p></div>
+        <table class="summary"><tbody>${launchRows(L)}</tbody></table>
+        <figure class="launch-map">
+          <iframe title="Map of ${esc(L.venue)}" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&amp;layer=mapnik&amp;marker=${L.lat}%2C${L.lng}"></iframe>
+          <figcaption class="small muted">${L.venueConfirmed ? esc(L.venueDetail || L.venue) + '.' : 'The pin shows the Hazeldean area in Pretoria East. The exact venue will be confirmed.'}
+            <a href="${esc(L.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${L.lat},${L.lng}`)}" rel="noopener" target="_blank">Open in Google Maps</a>${L.website ? ` · <a href="${esc(L.website)}" rel="noopener" target="_blank">Venue website</a>` : ''}</figcaption>
+        </figure>
+      </div>
+      ${L.open ? `<form class="card" id="launch-form" novalidate>
+        <span class="eyebrow">Launch event</span>
+        <h3>Register for the launch</h3>
+        <div class="notice bad form-error" hidden></div>
+        <div class="row2">
+          <div class="field" data-field="firstName"><label for="lf-first">Name</label><input id="lf-first" name="firstName" type="text" autocomplete="given-name"></div>
+          <div class="field" data-field="surname"><label for="lf-last">Surname</label><input id="lf-last" name="surname" type="text" autocomplete="family-name"></div>
+        </div>
+        <div class="field" data-field="email"><label for="lf-email">Business email <span class="hint">Please use your work address.</span></label><input id="lf-email" name="email" type="email" autocomplete="email">
+          <p class="small email-flag" id="email-flag" hidden></p></div>
+        <p class="small muted">We use these details only to manage the launch event and let you know when race entries open.</p>
+        <button class="btn" type="submit">Register for the launch event</button>
+      </form>` : '<div class="notice warn"><p>Registration for the launch event is closed.</p></div>'}
+    </div>
+  </section>`;
+  const form = $('#launch-form');
+  if (!form) return;
+  const flag = () => {
+    const v = form.elements.email.value;
+    const show = isPersonalEmail(v);
+    $('#email-flag').hidden = !show;
+    if (show) $('#email-flag').textContent = `${emailDomain(v)} looks like a personal address. A business email is preferred, but you can still register with this one.`;
+  };
+  form.elements.email.addEventListener('input', flag);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors(form);
+    const d = formData(form);
+    d.clientRequestId = requestId;
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await api.submitLaunchRegistration(d);
+      el.innerHTML = `${pageHead('Launch event', 'You’re registered for the launch')}
+        <section class="section"><div class="wrap narrow">
+          <div class="notice ok"><p>Thank you, ${esc(r.firstName)}. Reference <span class="ref">${esc(r.ref)}</span>.</p></div>
+          <table class="summary"><tbody>
+            <tr><th>Name</th><td>${esc(r.firstName)} ${esc(r.surname)}</td></tr>
+            <tr><th>Email</th><td>${esc(r.email)}</td></tr>
+            ${launchRows(r.event)}
+          </tbody></table>
+          ${r.personalEmail ? '<p class="small muted">You registered with a personal email address. That is fine – if you have a work address, you are welcome to let us know.</p>' : ''}
+          <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the 17 April 2027 race open on ${formatDate(r.raceOpensOn)}. We will email you once the launch date is confirmed.</p></div>
+          <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
+          <div class="btn-row"><a class="btn plain" href="#/">Back to home</a><a class="btn plain" href="#/info">Race info</a></div>
+        </div></section>`;
+      window.scrollTo(0, 0);
+    } catch (err) { btn.disabled = false; showErrors(form, err); }
+  });
 }
 
 // ---------------- Canvas Lodge ----------------
@@ -228,22 +327,24 @@ async function lodge(el) {
   const nights = L.nights;
   const dates = [...nights.map((n) => n.date), nights.length ? addDays(nights[nights.length - 1].date, 1) : null].filter(Boolean);
   const opt = (sel) => dates.map((d) => `<option value="${d}" ${d === sel ? 'selected' : ''}>${formatDate(d)}</option>`).join('');
-  const q1 = lodgeQuote({ nights: 1, ratePerNight: L.ratePerNight, depositPercent: L.depositPercent });
+  const minN = L.minNights || 1;
+  const qMin = lodgeQuote({ nights: minN, ratePerNight: L.ratePerNight, depositPercent: L.depositPercent });
   el.innerHTML = `
-  ${pageHead('Accommodation', 'Canvas Lodge', 'Stay at Melorane ERP Game Reserve the night before the race. Offered to group employees and other participants.', { href: '#/info', label: 'Race info' })}
+  ${pageHead('Accommodation', 'Canvas Lodge', 'Stay at Melorane ERP Game Reserve over race weekend. Offered to group employees and other participants. Minimum stay ' + minN + ' nights.', { href: '#/info', label: 'Race info' })}
   <section class="section">
     <div class="wrap split">
       <div>
-        <p class="price">R5,500 <span class="small muted" style="font-family:var(--body)">per person per night, all inclusive</span></p>
+        <p class="price">${rand(L.ratePerNight)} <span class="small muted" style="font-family:var(--body)">per person per night, all inclusive · minimum ${minN} nights</span></p>
         <p>Camping at the Melorane ERP Game Reserve combines the thrill of the great outdoors with knowing your stay supports the conservation of elephants and rhinos and community development. Nightly bonfires, star gazing and an off-the-grid bush experience – and you are already at the start line on race morning.</p>
-        <p class="small muted">Inclusions, minimum stay and cancellation terms ${tbc()} – we only publish what the organisers have confirmed.</p>
+        <div class="notice sun"><p><strong>Minimum stay: ${minN} nights.</strong> Canvas Lodge bookings must be for at least ${minN} nights.</p></div>
+        <p class="small muted">Inclusions and cancellation terms ${tbc()} – we only publish what the organisers have confirmed.</p>
 
         <h3 style="margin-top:28px">How payment works</h3>
         <ul class="ticks">
-          <li>Accommodation total = R5,500 × number of nights.</li>
+          <li>Accommodation total = ${rand(L.ratePerNight)} × number of nights (at least ${minN}).</li>
           <li>A <strong>${L.depositPercent}% booking deposit</strong> secures your beds once availability is confirmed.</li>
           <li>The remaining <strong>${100 - L.depositPercent}%</strong> is due by <strong>${formatDate(L.balanceDueDate)}</strong>.</li>
-          <li>The deposit is for accommodation only. It is never applied to the R1,000 charitable entry fee, sponsorships or donations, which are shown and paid separately.</li>
+          <li>The deposit is for accommodation only. It is never applied to the entry fee, socks, sponsorships or donations, which are shown and paid separately.</li>
           <li>A request is <strong>not a confirmed booking</strong> until availability has been checked and the deposit has been verified.</li>
         </ul>
         <div class="notice warn"><p><strong>Booking after ${formatDate(L.balanceDueDate)}?</strong> ${L.latePolicy.confirmed ? esc(L.latePolicy.text) : 'Late-booking terms are still to be confirmed by the organisers. We will not ask you to meet a deadline that has already passed.'}</p></div>
@@ -252,12 +353,12 @@ async function lodge(el) {
         <h3>Work out your stay</h3>
         <p class="small muted">Open nights: ${nights.map((n) => formatDate(n.date) + (n.available ? '' : ' (full)')).join(', ')} ${L.inventoryConfirmed ? '' : '<span class="sample">Sample dates</span>'}</p>
         <div class="row2">
-          <div class="field"><label for="la">Arrive</label><select id="la">${opt(dates[1] || dates[0])}</select></div>
-          <div class="field"><label for="ld">Depart</label><select id="ld">${opt(dates[2] || dates[1])}</select></div>
+          <div class="field"><label for="la">Arrive</label><select id="la">${opt(dates[0])}</select></div>
+          <div class="field"><label for="ld">Depart</label><select id="ld">${opt(dates[Math.min(minN, dates.length - 1)])}</select></div>
         </div>
         <div id="lq"></div>
-        <p class="small muted">Example for one participant, one night: accommodation ${rand(q1.total)}, deposit ${rand(q1.deposit)}, balance ${rand(q1.balance)}. The R1,000 charitable entry fee is separate.</p>
-        <div class="btn-row"><a class="btn" href="#/register">Register and request a stay</a></div>
+        <p class="small muted">Example for one participant, ${minN} nights: accommodation ${rand(qMin.total)}, deposit ${rand(qMin.deposit)}, balance ${rand(qMin.balance)}. The entry fee is separate.</p>
+        <div class="btn-row">${s.registration.open ? '<a class="btn" href="#/register">Register and request a stay</a>' : `<p class="small"><strong>${opensText(s)}.</strong> You can request a stay when you register.</p>`}</div>
         <p class="small" style="margin-top:12px">Already registered? <a href="#/my-entry">Add a stay to your entry</a>.</p>
       </div>
     </div>
@@ -265,6 +366,7 @@ async function lodge(el) {
   const calc = () => {
     const n = nightsBetween($('#la').value, $('#ld').value);
     if (n < 1) { $('#lq').innerHTML = '<p class="err">Departure must be after arrival.</p>'; return; }
+    if (n < minN) { $('#lq').innerHTML = `<p class="err">Canvas Lodge bookings are for a minimum of ${minN} nights.</p>`; return; }
     const q = lodgeQuote({ nights: n, ratePerNight: L.ratePerNight, depositPercent: L.depositPercent });
     $('#lq').innerHTML = `<table class="summary money"><tbody>
       <tr><th>Nights</th><td>${n}</td></tr>
@@ -373,123 +475,91 @@ async function waterPoints(el, [preselect]) {
 // ---------------- Donate ----------------
 
 async function donate(el) {
-  setTitle('Donate shoes or kit');
+  setTitle('Donate towards shoes and kit');
   const s = await api.publicSummary();
   const D = s.donations;
   const P = D.progress;
-  const fin = D.financialEnabled && (D.shoePrice || D.kitPrice);
   const requestId = uid();
+  const per = D.perRunner;
+  const target = Math.max(D.target, P.runnersNeedingKit);
+  const pct = target ? Math.min(100, Math.round((P.runnersFunded / target) * 100)) : 0;
   el.innerHTML = `
-  ${pageHead('Donations', 'Donate shoes or running kit', 'Help equip up to ' + D.target + ' community runners for race day and the training that comes before it.', BACK_INVOLVED)}
+  ${pageHead('Donations', 'Kit out a runner', 'We accept monetary donations only. ERP buys the shoes and kit and hands them out to the runners who need them.', BACK_INVOLVED)}
   <section class="section">
-    <div class="wrap">
-      <div class="grid two">
+    <div class="wrap split top">
+      <div>
         <div class="card accent">
-          <h3>Donate a pair of running shoes</h3>
-          <p>New or good-condition running shoes, matched to the sizes our community runners have asked for.</p>
-          <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0">
-            <div><span class="label muted">Requested</span><div class="stat" style="font-size:1.6rem">${P.shoesRequested}</div></div>
-            <div><span class="label muted">Received</span><div class="stat" style="font-size:1.6rem">${P.shoesInHand}</div></div>
-            <div><span class="label muted">Pledged</span><div class="stat" style="font-size:1.6rem">${P.shoesPledged}</div></div>
-          </div>
-          <button class="btn small" data-type="shoes" style="margin-top:12px">Pledge shoes</button>
+          <span class="label muted">One runner, fully kitted out</span>
+          <p class="price" style="margin:4px 0">${rand(per)} <span class="small muted" style="font-family:var(--body)">per runner</span></p>
+          <ul class="ticks">${D.items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
         </div>
-        <div class="card accent">
-          <h3>Donate running kit: a vest and shorts</h3>
-          <p>A running vest and a pair of shorts, so every community participant can line up ready to run.</p>
-          <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin:0">
-            <div><span class="label muted">Requested</span><div class="stat" style="font-size:1.6rem">${P.kitRequested}</div></div>
-            <div><span class="label muted">Received</span><div class="stat" style="font-size:1.6rem">${P.kitInHand}</div></div>
-            <div><span class="label muted">Pledged</span><div class="stat" style="font-size:1.6rem">${P.kitPledged}</div></div>
-          </div>
-          <button class="btn small" data-type="kit" style="margin-top:12px">Pledge kit</button>
+        <div class="kpis" style="grid-template-columns:repeat(3,1fr);margin-top:20px">
+          <div class="kpi"><span class="label">Raised</span><div class="stat" style="font-size:1.6rem">${rand(P.raised)}</div></div>
+          <div class="kpi"><span class="label">Runners funded</span><div class="stat" style="font-size:1.6rem">${P.runnersFunded}</div></div>
+          <div class="kpi"><span class="label">Asked for kit</span><div class="stat" style="font-size:1.6rem">${P.runnersNeedingKit}</div></div>
         </div>
+        <div class="meter" role="img" aria-label="${P.runnersFunded} of ${target} runners funded" style="height:10px;background:var(--sand);border-radius:999px;overflow:hidden;margin-top:12px"><span style="display:block;height:100%;width:${pct}%;background:var(--blue)"></span></div>
+        <p class="small muted" style="margin-top:8px">${P.runnersFunded} of ${target} runners funded. “Raised” counts money that has been received. We only show totals here – never the names, sizes or needs of individual participants.</p>
+        <h3 style="margin-top:28px">Why money and not items?</h3>
+        <p>Buying centrally means every runner gets new shoes and kit in the right size, and nothing is wasted on sizes nobody needs. ERP buys the items, records each purchase and tracks every item until it is handed over. We are not able to accept physical donations of shoes or clothing.</p>
+        <p class="small muted">Questions about a large or corporate donation? Email <a href="mailto:info@erp.ngo?subject=Run%20Wild%20Melorane%20donation">info@erp.ngo</a>.</p>
       </div>
-      <p class="small muted" style="margin-top:12px">“Received” counts items that have physically arrived. A pledge is counted separately until it is received. We only show totals here – never the names, sizes or needs of individual participants.</p>
-
-      <div class="split" style="margin-top:36px">
-        <form class="card" id="pledge-form" novalidate>
-          <h3>Pledge a physical donation</h3>
-          <div class="notice bad form-error" hidden></div>
-          <fieldset data-field="type"><span class="legend">What are you donating?</span>
-            <div class="choices cols">
-              <label class="choice"><input type="radio" name="type" value="shoes" checked><span><strong>Running shoes</strong>pairs</span></label>
-              <label class="choice"><input type="radio" name="type" value="kit"><span><strong>Running kit</strong>vest + shorts sets</span></label>
-            </div></fieldset>
-          <div class="field" data-field="quantity"><label for="qty">Quantity</label><input id="qty" name="quantity" type="number" min="1" max="100" value="1"></div>
-          <div class="row2" id="shoe-size">
-            <div class="field" data-field="size"><label for="sz">Shoe size</label><input id="sz" name="size" type="text" placeholder="e.g. 8"></div>
-            <div class="field"><label for="ss">Sizing system</label><select id="ss" name="sizeSystem"><option>UK</option><option>EU</option><option>US</option></select></div>
-          </div>
-          <div class="row2" id="kit-size" hidden>
-            <div class="field" data-field="shirtSize"><label for="vs">Vest size</label><select id="vs" name="shirtSize"><option value="">Choose…</option>${['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((x) => `<option>${x}</option>`).join('')}</select></div>
-            <div class="field"><label for="shs">Shorts size</label><select id="shs" name="shortsSize"><option value="">Choose…</option>${['XS', 'S', 'M', 'L', 'XL', 'XXL'].map((x) => `<option>${x}</option>`).join('')}</select></div>
-          </div>
-          <p class="small muted">Giving several sizes? Submit one pledge per size.</p>
-          <div class="field" data-field="condition"><label for="cond">Condition ${D.criteriaApproved ? '' : tbc('Criteria pending approval')}</label>
-            <select id="cond" name="condition">${D.conditionCriteria.map((c) => `<option>${esc(c)}</option>`).join('')}</select></div>
-          <div class="field" data-field="delivery"><label for="del">How will the items reach us?</label>
-            <select id="del" name="delivery"><option value="">Choose…</option><option>Drop-off</option><option>Collection requested</option><option>Courier</option><option>Bring on race day</option></select>
-            <span class="hint">${D.dropOffText ? esc(D.dropOffText) : 'Drop-off points and collection arrangements will be confirmed by the organisers.'}</span></div>
-          <div class="field" data-field="donor"><label for="dn">Your name or company</label><input id="dn" name="donor" type="text" autocomplete="name"></div>
-          <div class="row2">
-            <div class="field" data-field="email"><label for="de">Email</label><input id="de" name="email" type="email" autocomplete="email"></div>
-            <div class="field"><label for="dp">Mobile <span class="hint">Optional</span></label><input id="dp" name="phone" type="tel" autocomplete="tel"></div>
-          </div>
-          <button class="btn" type="submit">Submit pledge</button>
-        </form>
-        <div>
-          <h3>Prefer to contribute money?</h3>
-          ${fin ? `<p>Contribute towards buying shoes (${D.shoePrice ? rand(D.shoePrice) : '—'} a pair) or kit (${D.kitPrice ? rand(D.kitPrice) : '—'} a set).</p>
-            <form id="fin-form" class="card quiet" novalidate>
-              <div class="row2"><div class="field"><label for="ft">Item</label><select id="ft" name="type">${D.shoePrice ? '<option value="shoes">Shoes</option>' : ''}${D.kitPrice ? '<option value="kit">Kit</option>' : ''}</select></div>
-              <div class="field"><label for="fq">Quantity</label><input id="fq" name="quantity" type="number" min="1" max="50" value="1"></div></div>
-              <div class="field"><label for="fn">Name</label><input id="fn" name="donor" type="text"></div>
-              <div class="field"><label for="fe">Email</label><input id="fe" name="email" type="email"></div>
-              <div class="notice bad form-error" hidden></div>
-              <button class="btn navy" type="submit">Continue to payment</button></form>`
-    : `<div class="notice warn"><p>Financial contributions towards shoes and kit will open once the organisers have confirmed item prices and payment arrangements. We do not publish estimated prices.</p></div>`}
-          <p>Every item goes to a community participant registered for Run Wild Melorane, matched to the sizes they asked for. Organisers track each item from pledge to delivery.</p>
-          <p class="small muted">Questions about a large or corporate donation? Email <a href="mailto:info@erp.ngo?subject=Run%20Wild%20Melorane%20donation">info@erp.ngo</a>.</p>
+      ${D.enabled ? `<form class="card" id="don-form" novalidate>
+        <h3>Make a donation</h3>
+        <div class="notice bad form-error" hidden></div>
+        <fieldset data-field="mode"><span class="legend">How would you like to give?</span>
+          <div class="choices cols">
+            <label class="choice"><input type="radio" name="mode" value="runners" checked><span><strong>Kit out runners</strong>${rand(per)} each</span></label>
+            <label class="choice"><input type="radio" name="mode" value="amount"><span><strong>Another amount</strong>any amount helps</span></label>
+          </div></fieldset>
+        <div class="field" data-field="runners" id="f-runners"><label for="dr">Number of runners</label><input id="dr" name="runners" type="number" min="1" max="50" value="1"></div>
+        <div class="field" data-field="amount" id="f-amount" hidden><label for="da">Amount (R) <span class="hint">At least ${rand(D.minAmount)}</span></label><input id="da" name="amount" type="number" min="${D.minAmount / 100}" step="1" inputmode="numeric"></div>
+        <p class="price" id="don-total" style="font-size:1.4rem"></p>
+        <div class="field" data-field="donor"><label for="dn">Your name or company</label><input id="dn" name="donor" type="text" autocomplete="name"></div>
+        <div class="row2">
+          <div class="field" data-field="email"><label for="de">Email</label><input id="de" name="email" type="email" autocomplete="email"></div>
+          <div class="field"><label for="dp">Mobile <span class="hint">Optional</span></label><input id="dp" name="phone" type="tel" autocomplete="tel"></div>
         </div>
-      </div>
+        <p class="small muted">Pay online or by EFT on the next page. Your donation is counted once the payment has been received.</p>
+        <button class="btn" type="submit">Continue to payment</button>
+      </form>` : '<div class="notice warn"><p>Donations will open soon.</p></div>'}
     </div>
   </section>`;
-  const form = $('#pledge-form');
+  const form = $('#don-form');
+  if (!form) return;
   const sync = () => {
-    const t = form.querySelector('[name=type]:checked').value;
-    $('#shoe-size').hidden = t !== 'shoes';
-    $('#kit-size').hidden = t !== 'kit';
+    const mode = form.querySelector('[name=mode]:checked').value;
+    $('#f-runners').hidden = mode !== 'runners';
+    $('#f-amount').hidden = mode !== 'amount';
     $$('.choice', form).forEach((c) => c.classList.toggle('checked', c.querySelector('input').checked));
+    const n = Math.max(0, Math.floor(Number(form.elements.runners.value) || 0));
+    const amt = mode === 'runners' ? n * per : Math.round((Number(form.elements.amount.value) || 0) * 100);
+    $('#don-total').textContent = amt > 0 ? 'Total: ' + rand(amt) : '';
   };
-  $$('[name=type]', form).forEach((r) => r.addEventListener('change', sync));
-  $$('[data-type]').forEach((b) => b.addEventListener('click', () => { form.querySelector(`[value=${b.dataset.type}]`).checked = true; sync(); form.scrollIntoView({ behavior: 'smooth' }); }));
+  $$('[name=mode]', form).forEach((r) => r.addEventListener('change', sync));
+  form.elements.runners.addEventListener('input', sync);
+  form.elements.amount.addEventListener('input', sync);
   sync();
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearErrors(form);
     const d = formData(form);
     d.clientRequestId = requestId;
-    if (d.type === 'shoes') { d.shirtSize = ''; d.shortsSize = ''; } else { d.size = ''; d.sizeSystem = ''; }
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
     try {
-      const p = await api.submitPledge(d);
-      el.innerHTML = `${pageHead('Donations', 'Thank you for your pledge')}
+      const c = await api.submitContribution(d);
+      const sum = await api.publicSummary();
+      el.innerHTML = `${pageHead('Donations', 'Thank you for your donation')}
         <section class="section"><div class="wrap narrow">
-          <div class="notice ok"><p>Pledge reference <span class="ref">${esc(p.ref)}</span>: ${p.quantity} × ${p.type === 'shoes' ? 'pair(s) of running shoes, size ' + esc(p.size) + ' ' + esc(p.sizeSystem) : 'running kit set(s), vest ' + esc(p.shirtSize) + ' / shorts ' + esc(p.shortsSize)}.</p></div>
-          <p>Your pledge is recorded as <strong>pledged</strong>. It will be marked as received once the items reach the organisers. We will contact you about ${esc(p.delivery.toLowerCase())}.</p>
-          <p class="small muted">A confirmation message has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
+          <div class="notice ok"><p>Donation reference <span class="ref">${esc(c.ref)}</span>: ${c.runners ? 'kit for ' + c.runners + ' runner' + (c.runners > 1 ? 's' : '') + ', ' : ''}${rand(c.amount)}.</p></div>
+          ${chargesTable([c.charge], { payments: sum.payments })}
+          ${eftBlock(sum.payments, [c.charge.ref])}
+          <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
           <a class="btn plain" href="#/donate">Back to donations</a>
         </div></section>`;
       window.scrollTo(0, 0);
-    } catch (err) { showErrors(form, err); }
-  });
-  const ff = $('#fin-form');
-  if (ff) ff.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try {
-      const c = await api.submitContribution(formData(ff));
-      location.hash = '#/pay/' + encodeURIComponent(c.charge.ref);
-    } catch (err) { showErrors(ff, err); }
+    } catch (err) { btn.disabled = false; showErrors(form, err); }
   });
 }
 
@@ -512,7 +582,7 @@ async function runBuddy(el) {
           <li><strong>Train together</strong> using training resources approved by the organisers – plans, encouragement, and preparing for race day.</li>
         </ol>
         <p>Being a buddy is optional and has nothing to do with donating shoes or kit. You can withdraw at any time.</p>
-        <div class="btn-row"><a class="btn" href="#/register">Register and volunteer</a><a class="btn plain" href="#/my-entry">Already registered? Opt in</a></div>
+        <div class="btn-row">${s.registration.open ? '<a class="btn" href="#/register">Register and volunteer</a>' : `<span class="small"><strong>${opensText(s)}.</strong></span>`}<a class="btn plain" href="#/my-entry">Already registered? Opt in</a></div>
       </div>
       <div class="card quiet">
         <h3>So far</h3>
@@ -535,12 +605,19 @@ async function info(el) {
   const s = await api.publicSummary();
   const ev = s.event;
   const qa = [
+    ['When can I enter the race?', `${opensText(s)}. Until then race entries are closed. You can already <a href="#/launch">register for the launch event</a> – that is a separate event and does not enter you for the race.`],
+    ['What is the launch event?', `${esc(s.launch.description)} It takes place at ${esc(s.launch.venue)} at ${esc(s.launch.time)}${s.launch.timeConfirmed ? '' : ' (provisional)'}; the date is ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'still to be confirmed'}. Anyone can <a href="#/launch">register</a>.`],
     ['When and where is the race?', `Saturday 17 April 2027 at ${esc(ev.venue)}. ${startLine(ev)}. Plan to arrive early – the start is early in the morning.`],
     ['Which distances are there?', '<strong>21 km trail run</strong> or <strong>5 km run/walk</strong>. You choose one when you register. Both distances use the same pool of places for your category.'],
-    ['How many places are there?', `Group employees and other participants share one pool of ${s.pools.combined.limit} places. Community members have ${s.pools.community.limit} places. Melorane employees have no limit and do not use either pool. When a pool is full you can join its waitlist – no payment is taken for a waitlist place.`],
-    ['What does the R1,000 charitable entry fee cover?', esc(ev.proceedsText) + ' It applies to group employees and other participants for either distance.'],
-    ['What do community members and Melorane employees pay?', `Community members: ${s.fees.community.confirmed ? rand(s.fees.community.amount) : 'to be confirmed by the organisers'}. Melorane employees: ${s.fees.melorane_employee.confirmed ? rand(s.fees.melorane_employee.amount) : 'to be confirmed by the organisers'}. We will not ask for payment until the fee is confirmed.`],
-    ['How do I get there?', `Community participants are picked up from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)} on 17 April 2027${ev.pickupAddressConfirmed && ev.pickupFullAddress ? ' (' + esc(ev.pickupFullAddress) + ')' : ''}. Everyone else arranges their own transport and must arrive at the reserve on time, or stays at Canvas Lodge the night before.`],
+    ['Where do we start and finish, and what is the route?', `${ev.routeConfirmed ? `Start: ${esc(ev.startLocation)}. Finish: ${esc(ev.finishLocation)}. ${esc(ev.routeDescription)}` : 'The start and finish locations and the running route are still being confirmed by the organisers. We will publish them here and on the route map as soon as they are final.'}`],
+    ['How many places are there?', `Group employees and other participants share one pool of ${s.pools.combined.limit} places. Community members have ${s.pools.community.limit} places. Melorane employees have unlimited entries and do not use either pool. When a pool is full you can join its waitlist – no payment is taken for a waitlist place.`],
+    ['How much is the entry fee?', 'The entry fee depends on your category. It is shown as soon as you choose your category on the registration form, before you give any details. We will not ask for payment for a category whose fee has not been confirmed.'],
+    ['What does the entry fee cover?', esc(ev.proceedsText) + ' Every entry also includes a RunWild running shirt.'],
+    ['Do I get a running shirt?', 'Yes. Every entry, including group entries, includes a RunWild running shirt. Choose your shirt size when you register.'],
+    ['Can I buy socks?', `Yes. RunWild running socks are an optional add-on when you register, or later from “My entry”. ${s.socks.confirmed && s.socks.price ? 'They cost ' + rand(s.socks.price) + ' a pair, paid separately from the entry fee.' : 'The price is still to be confirmed – you can order now and nothing is payable for socks until the price is set.'}`],
+    ['What is an employee invitation code?', 'Group employees and Melorane employees get an invitation code from the organisers (usually through their employer). Entering it on the registration form confirms you are an employee straight away, so your place is allocated immediately. No code, or a code that does not work? You can still register – your entry waits for an organiser to verify your employment before a place is allocated, and nothing is payable until then. Codes only confirm employment; they do not give a discount.'],
+    ['I need running shoes or kit. Can I get some?', `Community members and Melorane employees can ask for running shoes and kit when they register and give their sizes. ERP buys the items with donated money (budgeted at ${rand(s.donations.perRunner)} per runner for shoes, shorts, shirt, socks and a cap) and hands them out before race day. We cannot promise items, but we will do our best.`],
+    ['How do I get there?', `Community participants are picked up from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)} on 17 April 2027${ev.pickupAddressConfirmed && ev.pickupFullAddress ? ' (' + esc(ev.pickupFullAddress) + ')' : ''}. Everyone else arranges their own transport and must arrive at the reserve on time, or stays at Canvas Lodge (minimum ${s.lodge.minNights} nights).`],
     ['How long is my place held while I pay?', `An unpaid reservation is held for ${s.reservationHours} hours. After that the place is released. If someone is on the waitlist, the organisers contact them – nobody is charged or confirmed automatically.`],
     ['How do I pay?', `Online through the event’s payment provider${s.payments.providerConnected ? '' : ' (being set up)'}, or by EFT using your unique payment reference. An entry is confirmed only once the payment provider notifies us or ERP finance reconciles your EFT – a screenshot or proof of payment alone does not confirm it.`],
     ['I don’t have an email address. Can I still enter?', 'Yes. Community members can register with a mobile number only. You will get a reference number on screen – write it down. Organisers can also register you in person.'],
@@ -559,7 +636,7 @@ async function info(el) {
           <p>${esc(s.terms.text)}</p>
           <p class="small">Version ${esc(s.terms.version)}</p></div></details>
         <details id="privacy"><summary>Privacy notice</summary><div>
-          <p>ERP collects your name, contact numbers, email address, emergency contact, category, distance and – for community participants – clothing and shoe sizes, to run Run Wild Melorane: to manage entries and payments, transport and safety on the day, kit distribution and the Run Buddy programme.</p>
+          <p>ERP collects your name, contact numbers, email address, emergency contact, category, distance and running shirt size – and, if you ask for running kit or order socks, your shoe, clothing and sock sizes – to run Run Wild Melorane: to manage entries and payments, transport and safety on the day, shirts and kit distribution and the Run Buddy programme.</p>
           <p>Your details are seen only by authorised organisers. We do not publish names, contact details, sizes or individual needs, and we only share your contact details with a Run Buddy once you have both agreed. Sponsors’ names and logos are shown only with their permission. You can ask to see, correct or delete your information by contacting <a href="mailto:info@erp.ngo">info@erp.ngo</a>, in line with POPIA.</p></div></details>
       </div>
     </div>
@@ -571,13 +648,15 @@ async function info(el) {
           <tr><th>Start</th><td>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early start – time to be confirmed'}</td></tr>
           <tr><th>Venue</th><td>${esc(ev.venue)}</td></tr>
           <tr><th>Distances</th><td>21 km trail · 5 km run/walk</td></tr>
+          ${routeFacts(ev, 'rows')}
           <tr><th>Community pickup</th><td>${esc(ev.pickupPlace)}, ${esc(ev.pickupTime)}</td></tr>
+          <tr><th>Race entries</th><td>${s.registration.open ? 'Open' : 'Open ' + formatDate(s.registration.opensOn)}</td></tr>
         </tbody></table>
-        <div class="btn-row" style="margin-top:20px"><a class="btn" href="#/register">Register</a></div>
+        <div class="btn-row" style="margin-top:20px">${raceCta(s, { label: 'Register' })}</div>
       </div>
       <div class="card quiet">
         <h3>Stay at Canvas Lodge</h3>
-        <p class="muted">Sleep at the reserve the night before and wake up at the start line. R5,500 per person per night, all inclusive.</p>
+        <p class="muted">Sleep at the reserve and wake up at the start line. ${rand(s.lodge.ratePerNight)} per person per night, all inclusive, minimum ${s.lodge.minNights} nights.</p>
         <a class="link-arrow" href="#/lodge">Lodge details</a>
       </div>
     </aside>
@@ -622,6 +701,7 @@ export function confirmationHTML(r) {
   const charges = r.charges;
   const entry = charges.find((c) => c.kind === 'entry');
   const lodgeCharges = charges.filter((c) => c.kind.startsWith('lodge'));
+  const sockCharges = charges.filter((c) => c.kind === 'socks');
   const statusText = {
     reserved: r.holdReason === 'fee_unconfirmed'
       ? 'Your place is held. The entry fee for your category has not been confirmed yet, so nothing is payable now. We will let you know the fee before anything is due.'
@@ -638,6 +718,9 @@ export function confirmationHTML(r) {
       <tr><th>Name</th><td>${esc(r.fullName)}</td></tr>
       <tr><th>Category</th><td>${esc(cat.label)}${r.verification === 'verified' ? ' · verified' : ''}</td></tr>
       <tr><th>Distance</th><td>${esc(DISTANCES[r.distance])}</td></tr>
+      <tr><th>RunWild shirt</th><td>${r.shirtSize ? 'Size ' + esc(r.shirtSize) : '—'} – included with your entry</td></tr>
+      ${r.socks ? `<tr><th>Socks</th><td>${r.socks.qty} pair${r.socks.qty > 1 ? 's' : ''}, size ${esc(r.socks.size)}${r.socksPrice ? '' : ' – price to be confirmed, nothing payable yet'}</td></tr>` : ''}
+      ${r.kit && (r.kit.needsShoes || r.kit.needsKit) ? `<tr><th>Running kit requested</th><td>${[r.kit.needsShoes && 'Shoes (' + esc(r.kit.shoeSize + ' ' + r.kit.shoeSystem) + ')', r.kit.needsKit && 'Kit (shorts ' + esc(r.kit.shortsSize) + ')'].filter(Boolean).join(', ')}</td></tr>` : ''}
       <tr><th>Race day</th><td>17 April 2027 · ${r.event.startTime ? esc(r.event.startTime) : 'Early start – exact time to be confirmed'}</td></tr>
       ${r.category === 'community' ? `<tr><th>Pickup</th><td>${esc(r.event.pickupPlace)} at ${esc(r.event.pickupTime)} on 17 April 2027${r.event.pickupFullAddress ? ' – ' + esc(r.event.pickupFullAddress) : ''}</td></tr>` : `<tr><th>Getting there</th><td>${r.lodgeWanted ? 'Staying at Canvas Lodge (see below).' : 'Early start from Melorane ERP Game Reserve. You arrange your own transport and arrive on time.'}</td></tr>`}
       ${r.buddy ? `<tr><th>Run Buddy</th><td>${r.buddy.optIn ? statusPill(r.buddy.status || 'awaiting_match') : 'Not taking part'}</td></tr>` : ''}
@@ -650,13 +733,14 @@ export function confirmationHTML(r) {
       ${r.lodge.note ? `<p class="small">${esc(r.lodge.note)}</p>` : ''}
       ${r.lodge.status === 'awaiting_deposit' ? `<p class="small">Beds are held until ${formatDateTime(r.lodge.expiresAt)}. Your stay is confirmed once the deposit is verified.</p>` : ''}
       ${r.lodge.balanceNote ? `<p class="small">${esc(r.lodge.balanceNote)}</p>` : ''}` : ''}
-    ${charges.length ? `<h3>Amounts</h3>${chargesTable([...(entry ? [entry] : []), ...lodgeCharges], { payments: r.payments })}${eftBlock(r.payments, charges.filter((c) => c.outstanding > 0).map((c) => c.ref))}` : ''}`;
+    ${charges.length ? `<h3>Amounts</h3>${chargesTable([...(entry ? [entry] : []), ...sockCharges, ...lodgeCharges], { payments: r.payments })}${eftBlock(r.payments, charges.filter((c) => c.outstanding > 0).map((c) => c.ref))}` : ''}`;
 }
 
 function renderMine(box, r, creds, reload) {
   const adult = CATEGORIES[r.category].adultOptions;
   const canLodge = adult && r.status !== 'cancelled' && (!r.lodge || ['declined', 'cancelled', 'expired'].includes(r.lodge.status));
   const m = r.match;
+  const canSocks = r.status !== 'cancelled' && !r.socks;
   box.innerHTML = `<div class="card" style="margin-top:20px">${confirmationHTML(r)}
     ${m ? `<h3>Your Run Buddy introduction</h3>
       ${m.partnerContact ? `<div class="notice ok"><p>You have both agreed. ${esc(m.partnerContact.name)} – ${esc(m.partnerContact.mobile)}${m.partnerContact.email ? ' – ' + esc(m.partnerContact.email) : ''}</p></div>`
@@ -675,9 +759,16 @@ function renderMine(box, r, creds, reload) {
             <div class="notice bad form-error" hidden></div>
             <button class="btn small" type="submit">Volunteer</button></form></div></details>`}` : ''}
     ${canLodge ? `<h3>Add a Canvas Lodge stay</h3><form id="lf" class="row3" novalidate style="align-items:end">
-        <div class="field"><label>Arrive</label><input name="arrival" type="date" min="2027-04-01" max="2027-04-30" value="2027-04-16"></div>
+        <div class="field"><label>Arrive</label><input name="arrival" type="date" min="2027-04-01" max="2027-04-30" value="2027-04-15"></div>
         <div class="field"><label>Depart</label><input name="departure" type="date" min="2027-04-01" max="2027-04-30" value="2027-04-17"></div>
         <div class="field"><button class="btn small" type="submit">Request stay</button></div>
+        <p class="small muted" style="grid-column:1/-1;margin:0">Canvas Lodge bookings are for a minimum of ${r.lodgeMinNights} nights.</p>
+        <div class="notice bad form-error" hidden style="grid-column:1/-1"></div></form>` : ''}
+    ${canSocks ? `<h3>Add RunWild running socks</h3><form id="sf" class="row3" novalidate style="align-items:end">
+        <div class="field"><label>Pairs</label><select name="qty">${[1, 2, 3, 4, 5].map((i) => `<option value="${i}">${i}</option>`).join('')}</select></div>
+        <div class="field"><label>Sock size</label><select name="size">${SOCK_SIZES.map((x) => `<option>${esc(x)}</option>`).join('')}</select></div>
+        <div class="field"><button class="btn small" type="submit">Order socks</button></div>
+        <p class="small muted" style="grid-column:1/-1;margin:0">${r.socksPrice ? rand(r.socksPrice) + ' per pair, paid separately.' : 'Price to be confirmed – nothing is payable for socks until it is set.'}</p>
         <div class="notice bad form-error" hidden style="grid-column:1/-1"></div></form>` : ''}
   </div>`;
   const act = async (fn) => { try { await fn(); toast('Saved'); reload(); } catch (e) { toast(e.message, true); } };
@@ -686,6 +777,7 @@ function renderMine(box, r, creds, reload) {
   $('#b-out', box)?.addEventListener('click', () => act(() => api.updateMyBuddy(creds.ref, creds.mobile, { optIn: false })));
   $('#b-in', box)?.addEventListener('click', () => act(() => api.updateMyBuddy(creds.ref, creds.mobile, { optIn: true })));
   $('#bf', box)?.addEventListener('submit', (e) => { e.preventDefault(); const f = e.target; api.updateMyBuddy(creds.ref, creds.mobile, { optIn: true, ...formData(f) }).then(() => { toast('Thank you for volunteering'); reload(); }, (err) => showErrors(f, err)); });
+  $('#sf', box)?.addEventListener('submit', (e) => { e.preventDefault(); const f = e.target; const d = formData(f); api.addSocksForEntry(creds.ref, creds.mobile, Number(d.qty), d.size).then(() => { toast('Socks ordered'); reload(); }, (err) => showErrors(f, err)); });
   $('#lf', box)?.addEventListener('submit', (e) => { e.preventDefault(); const f = e.target; const d = formData(f); api.requestLodgeForEntry(creds.ref, creds.mobile, d.arrival, d.departure).then(() => { toast('Stay requested'); reload(); }, (err) => showErrors(f, err)); });
 }
 
@@ -760,7 +852,7 @@ async function aboutPreview(el) {
   setTitle('About this preview');
   el.innerHTML = `${pageHead('Preview', 'About this preview')}
   <section class="section"><div class="wrap narrow">
-    <p>This is a working proof of concept for Run Wild Melorane. Registration, capacity limits, waitlists, reservation expiry, Canvas Lodge requests, water point sponsorship, donation tracking, Run Buddy matching and the organiser dashboard all work.</p>
+    <p>This is a working proof of concept for Run Wild Melorane. Registration (with shirt sizes and a socks add-on), capacity limits, waitlists, reservation expiry, Canvas Lodge requests, water point sponsorship, monetary donations, Run Buddy matching and the organiser dashboard all work.</p>
     <h3>What to know</h3>
     <ul class="ticks">
       <li><strong>Sample data.</strong> Records marked <span class="sample">Sample</span> are invented to show how the site looks with entries in it.</li>

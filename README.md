@@ -2,13 +2,17 @@
 
 Event site for **Run Wild Melorane**, an ERP (Elephants, Rhinos & People) initiative at Melorane ERP Game Reserve on **17 April 2027**: a 21 km trail run and 5 km run/walk that helps establish a local running community.
 
-This is a working preview, not a mock-up. It includes registration with capacity pools and a waitlist, unpaid-reservation expiry, Canvas Lodge requests and deposits, water point sponsorship, shoe and kit donations, the Community Run Buddy programme, payment confirmation, and a private organiser dashboard with CSV exports and an audit trail.
+This is a working preview, not a mock-up. It includes registration with capacity pools and a waitlist, RunWild shirt sizes for every entry, a socks add-on, unpaid-reservation expiry, Canvas Lodge requests and deposits (minimum two nights), water point sponsorship, monetary donations towards shoes and kit (R2,500 per runner, bought and handed out by ERP), running-kit requests from community members and Melorane employees, the Community Run Buddy programme, payment confirmation, and a private organiser dashboard with CSV exports and an audit trail.
+
+Race entries are **closed to the public until 1 February 2027** (set under Settings; organisers can still register people). Until then the site points visitors to the **launch event** at Hazeldean Valley Trails, Pretoria East (`#/launch`): anyone can register with name, surname and business email. Personal addresses such as Gmail or Outlook are flagged for the organisers but still accepted.
+
+Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): start and finish locations and the running route, the launch event date and time, the sock price, and the community and Melorane entry fees.
 
 | | |
 |---|---|
 | Public pages | Home · Race info & FAQ · Get involved (water points, shoe and kit donations, Run Buddy) · My entry · Register. Canvas Lodge is linked from Home and Race info. |
 | Organiser | `#/organiser` – preview sign-in `organiser@preview.local` / `runwild-preview` |
-| Invitation codes (preview) | `GROUP-PREVIEW`, `MELORANE-PREVIEW` |
+| Invitation codes (preview) | `GROUP-PREVIEW` (100 uses), `MELORANE-PREVIEW` (unlimited) |
 
 ## How the preview works and where it stops
 
@@ -39,7 +43,7 @@ The brief asked what happens if the platform can't guarantee capacity protection
 Test it against a throwaway Postgres (this includes a real 30-connection race for the last place):
 
 ```bash
-npm test          # 16 acceptance scenarios against the preview engine
+npm test          # 21 acceptance scenarios against the preview engine
 npm run test:sql  # schema.sql on a temporary Postgres 16: rules, RLS and concurrency
 ```
 
