@@ -39,6 +39,24 @@ export function defaultSettings() {
     // Places are held without a payment request; nothing is charged. Switch off before launch.
     acceptWhileFeeUnconfirmed: true,
     reservation: { expiryHours: 72 },
+    // Race entries are closed to the public until this date (Johannesburg time). Organisers can still register people.
+    registration: { opensOn: '2027-02-01' },
+    // The launch event comes before race entries open. Anyone can register; personal email addresses are flagged, not refused.
+    launchEvent: {
+      name: 'Run Wild Melorane launch event',
+      open: true,
+      date: '',
+      dateConfirmed: false,
+      time: '7:00 am',
+      timeConfirmed: false,
+      venue: 'Hazeldean, Pretoria East',
+      venueDetail: '',
+      venueConfirmed: false,
+      // Approximate centre of Hazeldean (near Silver Lakes). Move the pin once the exact venue is known.
+      lat: -25.7796,
+      lng: 28.3870,
+      description: 'Meet the team behind Run Wild Melorane, hear how the race supports a new running community at Melorane, and find out how to take part before race entries open.',
+    },
     terms: {
       approved: false,
       version: 'draft-0.1',
@@ -238,5 +256,16 @@ export function sampleData(now, settings) {
   const shoe8 = community.find((r) => r.kit.shoeSize === '8' && r.kit.needsShoes);
   if (shoe8) { stock[0].status = 'allocated'; stock[0].allocatedTo = shoe8.id; }
 
-  return { registrations: regs, charges, payments, lodgeRequests, sponsorships, stock, matches, contributions };
+  // Launch event: anyone can register. Personal email addresses are flagged for the organisers.
+  const launchRegistrations = [
+    ['Lerato', 'Mokoena', 'lerato.mokoena@example.co.za', false],
+    ['Johan', 'van Wyk', 'johan.vanwyk@example.com', false],
+    ['Anika', 'Botha', 'anika.botha@gmail.com', true],
+    ['Sipho', 'Dlamini', 'sipho@example.org', false],
+  ].map(([firstName, surname, email, personal], i) => ({
+    id: 'sample-launch-' + i, sample: true, ref: 'RWL-S000' + (i + 1), clientRequestId: 'seed-launch-' + i, firstName, surname, email,
+    domain: email.split('@')[1], personalEmail: personal, status: 'registered', createdAt: ts + i * 7200000,
+  }));
+
+  return { registrations: regs, charges, payments, lodgeRequests, sponsorships, stock, matches, contributions, launchRegistrations };
 }

@@ -1,5 +1,5 @@
 import { api, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
-import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays } from './core.js';
+import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
 import { routeExplorer, routeFacts } from './route.js';
@@ -9,6 +9,7 @@ const app = $('#app');
 const routes = {
   '': home,
   register: renderRegister,
+  launch,
   lodge,
   'water-points': waterPoints,
   donate,
@@ -53,6 +54,21 @@ router();
 function setTitle(t) { app.dataset.title = t; }
 
 const BACK_INVOLVED = { href: '#/get-involved', label: 'Get involved' };
+
+// "Register now" for the race, or – before race entries open – a route to the launch event.
+export function raceCta(s, { cls = 'btn', label = 'Register now' } = {}) {
+  if (s.registration.open) return `<a class="${cls}" href="#/register">${label}</a>`;
+  return `<a class="${cls}" href="#/launch">Register for the launch event</a>`;
+}
+
+function opensText(s) { return 'Race entries open ' + formatDate(s.registration.opensOn); }
+
+// Launch event details as table rows. Unconfirmed items say so.
+function launchRows(L) {
+  return `<tr><th>Date</th><td>${L.dateConfirmed && L.date ? formatDate(L.date) : tbc()}</td></tr>
+    <tr><th>Time</th><td>${esc(L.time)}${L.timeConfirmed ? '' : ' <span class="small muted">(provisional)</span>'}</td></tr>
+    <tr><th>Where</th><td>${esc(L.venue)}${L.venueConfirmed && L.venueDetail ? '<br>' + esc(L.venueDetail) : '<br><span class="small muted">Exact venue to be confirmed</span>'}</td></tr>`;
+}
 
 function startLine(ev) {
   return ev.startTime ? esc(ev.startTime) : 'Early start – exact time to be confirmed';
@@ -118,10 +134,10 @@ async function home(el) {
       <p class="place">MELORANE</p>
       <p class="when">Saturday 17 April 2027<span>·</span>21 km trail run &amp; 5 km run/walk</p>
       <div class="btn-row">
-        <a class="btn" href="#/register">Register now</a>
+        ${raceCta(s)}
         <a class="btn ghost" href="#/info">Race info</a>
       </div>
-      ${days > 0 ? `<p class="hero-note">${days} days to go · limited places</p>` : ''}
+      ${s.registration.open ? (days > 0 ? `<p class="hero-note">${days} days to go · limited places</p>` : '') : `<p class="hero-note">${opensText(s)} · limited places</p>`}
     </div>
     <div class="hero-land" role="img" aria-label="Red dirt track through the bushveld at sunrise"></div>
   </section>
@@ -132,6 +148,13 @@ async function home(el) {
     <div><span class="label">Venue</span><strong>Melorane ERP Game Reserve</strong></div>
     <div><span class="label">Distances</span><strong>21 km · 5 km</strong></div>
   </div>
+
+  ${s.launch.open ? `<section class="launch-band">
+    <div class="wrap">
+      <div><span class="eyebrow">Before the race</span><strong>Launch event</strong> · ${esc(s.launch.venue)} · ${esc(s.launch.time)} · ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'date to be confirmed'}</div>
+      <a class="link-arrow" href="#/launch">Register for the launch</a>
+    </div>
+  </section>` : ''}
 
   <section class="section">
     <div class="wrap split">
@@ -171,7 +194,8 @@ async function home(el) {
         <div class="entry-row"><div><h3>Melorane employees</h3><p>Additional to the limited places · verified by the organisers</p></div>${placesPill(null)}</div>
       </div>
       <p class="small muted center" style="margin-top:16px">Every entry includes a RunWild running shirt. Your entry fee is shown once you choose your category when you register.</p>
-      <div class="btn-row" style="justify-content:center;margin-top:36px"><a class="btn navy" href="#/register">Register now</a></div>
+      <div class="btn-row" style="justify-content:center;margin-top:36px">${raceCta(s, { cls: 'btn navy' })}</div>
+      ${s.registration.open ? '' : `<p class="small muted center" style="margin-top:12px">${opensText(s)}.</p>`}
     </div>
   </section>
 
@@ -206,8 +230,8 @@ async function home(el) {
   <section class="section sand cta-band">
     <div class="wrap narrow">
       <h2>See you on the trail.</h2>
-      <p class="lead">Places are limited. Secure yours today.</p>
-      <div class="btn-row"><a class="btn" href="#/register">Register now</a><a class="btn plain" href="#/info">Read the FAQ</a></div>
+      <p class="lead">${s.registration.open ? 'Places are limited. Secure yours today.' : opensText(s) + '. Join us at the launch event first.'}</p>
+      <div class="btn-row">${raceCta(s)}<a class="btn plain" href="#/info">Read the FAQ</a></div>
     </div>
   </section>`;
   routeExplorer($('#route'), { event: ev });
@@ -219,6 +243,79 @@ async function getInvolved(el) {
   el.innerHTML = `
   ${pageHead('Get involved', 'Help more runners reach the start line', 'Sponsor a water point, donate towards shoes and kit, or support a community runner as a Run Buddy. Sponsorships and donations never use a race place.')}
   <section class="section"><div class="wrap">${involvedTiles(s)}</div></section>`;
+}
+
+// ---------------- Launch event ----------------
+
+async function launch(el) {
+  setTitle('Launch event');
+  const s = await api.publicSummary();
+  const L = s.launch;
+  const requestId = uid();
+  const d = 0.018;
+  const bbox = [L.lng - d, L.lat - d * 0.6, L.lng + d, L.lat + d * 0.6].map((x) => x.toFixed(4)).join(',');
+  el.innerHTML = `
+  ${pageHead('Launch event', 'Run Wild Melorane launch', esc(L.description))}
+  <section class="section">
+    <div class="wrap split top">
+      <div>
+        <div class="notice"><p><strong>This is the launch event, not the race.</strong> Registering here does not enter you for the 17 April 2027 race. ${s.registration.open ? 'Race entries are open now – <a href="#/register">register for the race</a>.' : opensText(s) + '.'}</p></div>
+        <table class="summary"><tbody>${launchRows(L)}</tbody></table>
+        <figure class="launch-map">
+          <iframe title="Map of ${esc(L.venue)}" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&amp;layer=mapnik&amp;marker=${L.lat}%2C${L.lng}"></iframe>
+          <figcaption class="small muted">${L.venueConfirmed ? esc(L.venueDetail || L.venue) + '.' : 'The pin shows the Hazeldean area in Pretoria East. The exact venue will be confirmed.'}
+            <a href="https://www.google.com/maps/search/?api=1&amp;query=${L.lat}%2C${L.lng}" rel="noopener" target="_blank">Open in Google Maps</a></figcaption>
+        </figure>
+      </div>
+      ${L.open ? `<form class="card" id="launch-form" novalidate>
+        <span class="eyebrow">Launch event</span>
+        <h3>Register for the launch</h3>
+        <div class="notice bad form-error" hidden></div>
+        <div class="row2">
+          <div class="field" data-field="firstName"><label for="lf-first">Name</label><input id="lf-first" name="firstName" type="text" autocomplete="given-name"></div>
+          <div class="field" data-field="surname"><label for="lf-last">Surname</label><input id="lf-last" name="surname" type="text" autocomplete="family-name"></div>
+        </div>
+        <div class="field" data-field="email"><label for="lf-email">Business email <span class="hint">Please use your work address.</span></label><input id="lf-email" name="email" type="email" autocomplete="email">
+          <p class="small email-flag" id="email-flag" hidden></p></div>
+        <p class="small muted">We use these details only to manage the launch event and let you know when race entries open.</p>
+        <button class="btn" type="submit">Register for the launch event</button>
+      </form>` : '<div class="notice warn"><p>Registration for the launch event is closed.</p></div>'}
+    </div>
+  </section>`;
+  const form = $('#launch-form');
+  if (!form) return;
+  const flag = () => {
+    const v = form.elements.email.value;
+    const show = isPersonalEmail(v);
+    $('#email-flag').hidden = !show;
+    if (show) $('#email-flag').textContent = `${emailDomain(v)} looks like a personal address. A business email is preferred, but you can still register with this one.`;
+  };
+  form.elements.email.addEventListener('input', flag);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors(form);
+    const d = formData(form);
+    d.clientRequestId = requestId;
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = await api.submitLaunchRegistration(d);
+      el.innerHTML = `${pageHead('Launch event', 'You’re registered for the launch')}
+        <section class="section"><div class="wrap narrow">
+          <div class="notice ok"><p>Thank you, ${esc(r.firstName)}. Reference <span class="ref">${esc(r.ref)}</span>.</p></div>
+          <table class="summary"><tbody>
+            <tr><th>Name</th><td>${esc(r.firstName)} ${esc(r.surname)}</td></tr>
+            <tr><th>Email</th><td>${esc(r.email)}</td></tr>
+            ${launchRows(r.event)}
+          </tbody></table>
+          ${r.personalEmail ? '<p class="small muted">You registered with a personal email address. That is fine – if you have a work address, you are welcome to let us know.</p>' : ''}
+          <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the 17 April 2027 race open on ${formatDate(r.raceOpensOn)}. We will email you once the launch date is confirmed.</p></div>
+          <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
+          <div class="btn-row"><a class="btn plain" href="#/">Back to home</a><a class="btn plain" href="#/info">Race info</a></div>
+        </div></section>`;
+      window.scrollTo(0, 0);
+    } catch (err) { btn.disabled = false; showErrors(form, err); }
+  });
 }
 
 // ---------------- Canvas Lodge ----------------
@@ -261,7 +358,7 @@ async function lodge(el) {
         </div>
         <div id="lq"></div>
         <p class="small muted">Example for one participant, ${minN} nights: accommodation ${rand(qMin.total)}, deposit ${rand(qMin.deposit)}, balance ${rand(qMin.balance)}. The entry fee is separate.</p>
-        <div class="btn-row"><a class="btn" href="#/register">Register and request a stay</a></div>
+        <div class="btn-row">${s.registration.open ? '<a class="btn" href="#/register">Register and request a stay</a>' : `<p class="small"><strong>${opensText(s)}.</strong> You can request a stay when you register.</p>`}</div>
         <p class="small" style="margin-top:12px">Already registered? <a href="#/my-entry">Add a stay to your entry</a>.</p>
       </div>
     </div>
@@ -485,7 +582,7 @@ async function runBuddy(el) {
           <li><strong>Train together</strong> using training resources approved by the organisers – plans, encouragement, and preparing for race day.</li>
         </ol>
         <p>Being a buddy is optional and has nothing to do with donating shoes or kit. You can withdraw at any time.</p>
-        <div class="btn-row"><a class="btn" href="#/register">Register and volunteer</a><a class="btn plain" href="#/my-entry">Already registered? Opt in</a></div>
+        <div class="btn-row">${s.registration.open ? '<a class="btn" href="#/register">Register and volunteer</a>' : `<span class="small"><strong>${opensText(s)}.</strong></span>`}<a class="btn plain" href="#/my-entry">Already registered? Opt in</a></div>
       </div>
       <div class="card quiet">
         <h3>So far</h3>
@@ -508,6 +605,8 @@ async function info(el) {
   const s = await api.publicSummary();
   const ev = s.event;
   const qa = [
+    ['When can I enter the race?', `${opensText(s)}. Until then race entries are closed. You can already <a href="#/launch">register for the launch event</a> – that is a separate event and does not enter you for the race.`],
+    ['What is the launch event?', `${esc(s.launch.description)} It takes place at ${esc(s.launch.venue)} at ${esc(s.launch.time)}${s.launch.timeConfirmed ? '' : ' (provisional)'}; the date is ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'still to be confirmed'}. Anyone can <a href="#/launch">register</a>.`],
     ['When and where is the race?', `Saturday 17 April 2027 at ${esc(ev.venue)}. ${startLine(ev)}. Plan to arrive early – the start is early in the morning.`],
     ['Which distances are there?', '<strong>21 km trail run</strong> or <strong>5 km run/walk</strong>. You choose one when you register. Both distances use the same pool of places for your category.'],
     ['Where do we start and finish, and what is the route?', `${ev.routeConfirmed ? `Start: ${esc(ev.startLocation)}. Finish: ${esc(ev.finishLocation)}. ${esc(ev.routeDescription)}` : 'The start and finish locations and the running route are still being confirmed by the organisers. We will publish them here and on the route map as soon as they are final.'}`],
@@ -551,8 +650,9 @@ async function info(el) {
           <tr><th>Distances</th><td>21 km trail · 5 km run/walk</td></tr>
           ${routeFacts(ev, 'rows')}
           <tr><th>Community pickup</th><td>${esc(ev.pickupPlace)}, ${esc(ev.pickupTime)}</td></tr>
+          <tr><th>Race entries</th><td>${s.registration.open ? 'Open' : 'Open ' + formatDate(s.registration.opensOn)}</td></tr>
         </tbody></table>
-        <div class="btn-row" style="margin-top:20px"><a class="btn" href="#/register">Register</a></div>
+        <div class="btn-row" style="margin-top:20px">${raceCta(s, { label: 'Register' })}</div>
       </div>
       <div class="card quiet">
         <h3>Stay at Canvas Lodge</h3>

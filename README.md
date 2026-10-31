@@ -4,7 +4,9 @@ Event site for **Run Wild Melorane**, an ERP (Elephants, Rhinos & People) initia
 
 This is a working preview, not a mock-up. It includes registration with capacity pools and a waitlist, RunWild shirt sizes for every entry, a socks add-on, unpaid-reservation expiry, Canvas Lodge requests and deposits (minimum two nights), water point sponsorship, monetary donations towards shoes and kit (R2,500 per runner, bought and handed out by ERP), running-kit requests from community members and Melorane employees, the Community Run Buddy programme, payment confirmation, and a private organiser dashboard with CSV exports and an audit trail.
 
-Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): start and finish locations and the running route, the sock price, and the community and Melorane entry fees.
+Race entries are **closed to the public until 1 February 2027** (set under Settings; organisers can still register people). Until then the site points visitors to the **launch event** at Hazeldean, Pretoria East (`#/launch`): anyone can register with name, surname and business email. Personal addresses such as Gmail or Outlook are flagged for the organisers but still accepted.
+
+Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): start and finish locations and the running route, the launch event date and exact venue, the sock price, and the community and Melorane entry fees.
 
 | | |
 |---|---|
@@ -41,7 +43,7 @@ The brief asked what happens if the platform can't guarantee capacity protection
 Test it against a throwaway Postgres (this includes a real 30-connection race for the last place):
 
 ```bash
-npm test          # 19 acceptance scenarios against the preview engine
+npm test          # 21 acceptance scenarios against the preview engine
 npm run test:sql  # schema.sql on a temporary Postgres 16: rules, RLS and concurrency
 ```
 

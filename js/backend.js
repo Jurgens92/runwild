@@ -7,11 +7,11 @@
 import {
   CATEGORIES, DISTANCES, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
   normaliseMobile, validMobile, validEmail, nightsBetween, stayNights, lodgeQuote, lodgeBalanceDue, todayJHB,
-  formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES,
+  formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES, registrationOpen, isPersonalEmail, emailDomain,
 } from './core.js';
 import { defaultSettings, sampleData } from './defaults.js';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const HOUR = 3600000;
 
 export class ValidationError extends Error {
@@ -79,7 +79,7 @@ export class Backend {
     const base = {
       version: SCHEMA_VERSION, createdAt: this.now(), settings,
       registrations: [], charges: [], payments: [], providerEvents: [], lodgeRequests: [], sponsorships: [],
-      stock: [], matches: [], contributions: [], outbox: [], audit: [], sessions: [],
+      stock: [], matches: [], contributions: [], launchRegistrations: [], outbox: [], audit: [], sessions: [],
     };
     if (this.seed) Object.assign(base, sampleData(this.now(), settings));
     base.audit.push({ id: uid(), at: this.now(), actor: 'system', action: 'preview.created', target: '', details: this.seed ? 'Preview created with sample data' : 'Empty preview created' });
@@ -148,7 +148,7 @@ export class Backend {
   }
 
   _uniqueRef(s, prefix) {
-    const taken = new Set([...s.registrations.map((r) => r.ref), ...s.sponsorships.map((x) => x.ref), ...s.contributions.map((x) => x.ref)]);
+    const taken = new Set([...s.registrations.map((r) => r.ref), ...s.sponsorships.map((x) => x.ref), ...s.contributions.map((x) => x.ref), ...(s.launchRegistrations || []).map((x) => x.ref)]);
     let ref;
     do { ref = makeRef(prefix); } while (taken.has(ref));
     return ref;
@@ -187,6 +187,8 @@ export class Backend {
         fees: clone(st.fees),
         acceptWhileFeeUnconfirmed: st.acceptWhileFeeUnconfirmed,
         reservationHours: st.reservation.expiryHours,
+        registration: { opensOn: st.registration.opensOn, open: registrationOpen(st, now) },
+        launch: clone(st.launchEvent),
         terms: clone(st.terms),
         socks: clone(st.socks),
         lodge: {
@@ -324,6 +326,10 @@ export class Backend {
       if (input.clientRequestId) {
         const existing = s.registrations.find((r) => r.clientRequestId === input.clientRequestId);
         if (existing) return { ...this._confirmation(s, existing), duplicateSubmission: true };
+      }
+      // Race entries are closed to the public until the opening date. Organisers can still register people.
+      if (!organiser && !registrationOpen(s.settings, this.now())) {
+        throw new ValidationError('Race entries open on ' + formatDate(s.settings.registration.opensOn) + '. Until then you can register for the launch event.');
       }
       this._validateRegistration(s, input);
       const mobile = normaliseMobile(input.mobile);
@@ -793,6 +799,45 @@ export class Backend {
     });
   }
 
+  // ---------- launch event ----------
+
+  // Anyone can register for the launch event. A personal email address (Gmail and similar) is accepted but flagged.
+  async submitLaunchRegistration(input) {
+    return this._write((s) => {
+      s.launchRegistrations = s.launchRegistrations || [];
+      if (input.clientRequestId) {
+        const ex = s.launchRegistrations.find((x) => x.clientRequestId === input.clientRequestId);
+        if (ex) return { ...this._launchView(s, ex), duplicateSubmission: true };
+      }
+      const L = s.settings.launchEvent;
+      if (!L.open) throw new ValidationError('Registration for the launch event is closed.');
+      const e = {};
+      const firstName = String(input.firstName || '').trim();
+      const surname = String(input.surname || '').trim();
+      const email = String(input.email || '').trim().toLowerCase();
+      if (!firstName) e.firstName = 'Enter your name.';
+      if (!surname) e.surname = 'Enter your surname.';
+      if (!validEmail(email)) e.email = 'Enter a valid email address.';
+      if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
+      if (s.launchRegistrations.some((x) => x.status !== 'cancelled' && x.email === email)) {
+        throw new ValidationError('This email address is already registered for the launch event.', { email: 'Already registered.' });
+      }
+      const personal = isPersonalEmail(email);
+      const lr = {
+        id: uid(), ref: this._uniqueRef(s, 'RWL'), clientRequestId: input.clientRequestId || uid(),
+        firstName, surname, email, domain: emailDomain(email), personalEmail: personal, status: 'registered', createdAt: this.now(),
+      };
+      s.launchRegistrations.push(lr);
+      this._audit(s, 'public', 'launch.registered', lr.ref, firstName + ' ' + surname + (personal ? ' (personal email: ' + lr.domain + ')' : ''));
+      this._queueMessage(s, { to: email, channel: 'email', subject: 'Run Wild Melorane launch event – ' + lr.ref, body: 'Thank you, ' + firstName + '. You are registered for the Run Wild Melorane launch event at ' + L.venue + '. This is not a race entry: race entries open on ' + formatDate(s.settings.registration.opensOn) + '.', ref: lr.ref });
+      return this._launchView(s, lr);
+    });
+  }
+
+  _launchView(s, lr) {
+    return { ref: lr.ref, firstName: lr.firstName, surname: lr.surname, email: lr.email, personalEmail: lr.personalEmail, status: lr.status, event: clone(s.settings.launchEvent), raceOpensOn: s.settings.registration.opensOn };
+  }
+
   // ---------- organiser ----------
 
   _requireOrganiser(s, token) {
@@ -988,6 +1033,13 @@ export class Backend {
           this._audit(s, who, 'buddy.ended', m.id);
           return null;
         }
+        case 'cancelLaunch': {
+          const lr = (s.launchRegistrations || []).find((x) => x.id === args.id);
+          if (!lr) throw new ValidationError('Launch registration not found.');
+          lr.status = 'cancelled';
+          this._audit(s, who, 'launch.cancelled', lr.ref);
+          return null;
+        }
         case 'clearAttention': {
           const coll = { registration: s.registrations, lodge: s.lodgeRequests, sponsorship: s.sponsorships }[args.kind];
           const rec = coll && coll.find((x) => x.id === args.id);
@@ -1010,6 +1062,10 @@ export class Backend {
       if (!(next.reservation.expiryHours >= 1)) e.push('Reservation expiry must be at least 1 hour.');
       for (const [cat, f] of Object.entries(next.fees)) if (f.confirmed && !(Number.isInteger(f.amount) && f.amount >= 0)) e.push('Set an amount for ' + CATEGORIES[cat].label + ' before confirming it.');
       if (!(next.waterPoints.price > 0)) e.push('Water point price must be above zero.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(next.registration.opensOn || '')) e.push('Set the date race entries open.');
+      if (next.launchEvent.date && !/^\d{4}-\d{2}-\d{2}$/.test(next.launchEvent.date)) e.push('The launch event date must be a date.');
+      if (next.launchEvent.dateConfirmed && !next.launchEvent.date) e.push('Set the launch event date before confirming it.');
+      if (!(Number.isFinite(next.launchEvent.lat) && Number.isFinite(next.launchEvent.lng))) e.push('The launch venue map pin needs a latitude and longitude.');
       if (!(Number.isInteger(next.lodge.minNights) && next.lodge.minNights >= 1)) e.push('Lodge minimum stay must be a whole number of nights.');
       if (next.socks.confirmed && !(Number.isInteger(next.socks.price) && next.socks.price > 0)) e.push('Set a sock price before confirming it.');
       if (!(Number.isInteger(next.socks.maxPerEntry) && next.socks.maxPerEntry >= 1)) e.push('Allow at least one pair of socks per entry.');

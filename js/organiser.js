@@ -4,7 +4,7 @@ import { AuthError } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
 
 const TABS = [
-  ['overview', 'Overview'], ['participants', 'Participants'], ['verify', 'Employee verification'], ['waitlist', 'Waitlist & cancelled'],
+  ['overview', 'Overview'], ['launch', 'Launch event'], ['participants', 'Participants'], ['verify', 'Employee verification'], ['waitlist', 'Waitlist & cancelled'],
   ['payments', 'Payments'], ['shirts', 'Shirts & socks'], ['lodge', 'Canvas Lodge'], ['water', 'Water points'], ['donations', 'Donations & kit'],
   ['buddies', 'Run Buddy'], ['pickup', 'Pickup list'], ['messages', 'Messages'], ['audit', 'Audit trail'],
   ['settings', 'Settings'], ['checklist', 'Launch checklist'], ['tests', 'Verification tests'],
@@ -173,6 +173,7 @@ const VIEWS = {
     ];
     m.innerHTML = `<h2>Overview</h2>
       <p class="small muted">Signed in as ${esc(D.me.email)} · ${formatDateTime(D.now)} SAST</p>
+      <p class="small">Race entries ${D.now >= Date.parse(D.settings.registration.opensOn + 'T00:00:00+02:00') ? '<strong>open</strong>' : 'open to the public on <strong>' + formatDate(D.settings.registration.opensOn) + '</strong> (you can still register people from Participants)'} · launch event registrations: <strong>${(D.launchRegistrations || []).filter((x) => x.status !== 'cancelled').length}</strong></p>
       <div class="kpis">
         <div class="kpi"><span class="label">${esc(POOLS.combined.label)}</span><div class="stat">${u.combined.used} / ${u.combined.limit}</div><div class="small">${u.combined.remaining} remaining · ${u.combined.confirmed} confirmed, ${u.combined.reserved} reserved</div></div>
         <div class="kpi"><span class="label">Community members</span><div class="stat">${u.community.used} / ${u.community.limit}</div><div class="small">${u.community.remaining} remaining · ${u.community.confirmed} confirmed, ${u.community.reserved} reserved</div></div>
@@ -187,6 +188,32 @@ const VIEWS = {
       <div class="table-wrap"><table class="data"><thead><tr><th>Stream</th><th class="num">Billed</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>${money.join('')}</tbody></table></div>
       <p class="small muted">Billed amounts exclude waitlisted entries and entries whose fee is not yet confirmed.</p>`;
     $$('[data-clear]', m).forEach((b) => b.addEventListener('click', () => { const [kind, id] = b.dataset.clear.split('|'); const note = prompt('Resolution note'); if (note !== null) act('clearAttention', { kind, id, note }); }));
+  },
+
+  launch(m, D) {
+    const L = D.settings.launchEvent;
+    const rs = [...(D.launchRegistrations || [])].sort((a, b) => b.createdAt - a.createdAt);
+    const active = rs.filter((r) => r.status !== 'cancelled');
+    const flagged = active.filter((r) => r.personalEmail);
+    m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Launch event</h2><div class="filters">
+        <label class="check small"><input type="checkbox" id="fp"> Personal emails only</label>
+        <button class="btn small" id="csv">CSV</button></div></div>
+      <p class="small">${esc(L.venue)} · ${esc(L.time)}${L.timeConfirmed ? '' : ' (provisional)'} · ${L.dateConfirmed && L.date ? formatDate(L.date) : tbc('Date to be confirmed')} · registration ${L.open ? 'open' : 'closed'}. Edit under Settings.</p>
+      <div class="kpis">
+        <div class="kpi"><span class="label">Registered</span><div class="stat">${active.length}</div></div>
+        <div class="kpi"><span class="label">Personal email</span><div class="stat">${flagged.length}</div><div class="small">Gmail, Outlook and similar – flagged, not refused</div></div>
+      </div>
+      <div id="list"></div>`;
+    const render = () => {
+      const list = $('#fp').checked ? rs.filter((r) => r.personalEmail) : rs;
+      $('#list').innerHTML = table(['Ref', 'Name', 'Email', 'Email type', 'Registered', 'Status', ''], list.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.firstName)} ${esc(r.surname)}${sampleBadge(r)}</td><td>${esc(r.email)}</td>
+        <td>${r.personalEmail ? statusPill('pending', 'Personal – ' + r.domain) : statusPill('confirmed', 'Business')}</td><td>${formatDateTime(r.createdAt)}</td><td>${statusPill(r.status)}</td>
+        <td>${r.status !== 'cancelled' ? `<button class="btn small danger" data-lx="${r.id}">Cancel</button>` : ''}</td></tr>`), 'Nobody has registered for the launch event yet.');
+      $$('[data-lx]', m).forEach((b) => b.addEventListener('click', () => confirm('Cancel this launch registration?') && act('cancelLaunch', { id: b.dataset.lx }, 'Cancelled')));
+    };
+    $('#fp').addEventListener('change', render);
+    render();
+    $('#csv').addEventListener('click', () => csvDownload('launch-event', ['Reference', 'Name', 'Surname', 'Email', 'Personal email', 'Status', 'Registered', 'Sample'], rs.map((r) => [r.ref, r.firstName, r.surname, r.email, r.personalEmail ? 'yes' : '', r.status, formatDateTime(r.createdAt), r.sample ? 'yes' : ''])));
   },
 
   participants(m, D) {
@@ -474,6 +501,18 @@ function settingsView(m, D) {
       <div class="row2"><div class="field"><label>Full pickup address in PJ</label><input name="pickupFullAddress" type="text" value="${esc(S.event.pickupFullAddress)}"></div><div class="field" style="align-self:end">${chk('pickupAddressConfirmed', S.event.pickupAddressConfirmed, 'Address confirmed – publish it')}</div></div>
       <div class="field"><label>Where proceeds go (shown on home page and form)</label><textarea name="proceedsText">${esc(S.event.proceedsText)}</textarea></div>
     </div>
+    <div class="card" style="margin-bottom:16px"><h3>Race entries and launch event</h3>
+      <div class="row2"><div class="field"><label>Race entries open on <span class="hint">Closed to the public before this date</span></label><input name="opensOn" type="date" value="${esc(S.registration.opensOn)}"></div>
+        <div class="field" style="align-self:end">${chk('launchOpen', S.launchEvent.open, 'Launch event registration open')}</div></div>
+      <div class="row3"><div class="field"><label>Launch date</label><input name="launchDate" type="date" value="${esc(S.launchEvent.date)}"></div>
+        <div class="field" style="align-self:end">${chk('launchDateOk', S.launchEvent.dateConfirmed, 'Date confirmed')}</div>
+        <div class="field"><label>Launch time</label><input name="launchTime" type="text" value="${esc(S.launchEvent.time)}">${chk('launchTimeOk', S.launchEvent.timeConfirmed, 'Time confirmed')}</div></div>
+      <div class="row2"><div class="field"><label>Venue (area)</label><input name="launchVenue" type="text" value="${esc(S.launchEvent.venue)}"></div>
+        <div class="field"><label>Exact venue / address</label><input name="launchVenueDetail" type="text" value="${esc(S.launchEvent.venueDetail)}">${chk('launchVenueOk', S.launchEvent.venueConfirmed, 'Exact venue confirmed – publish it')}</div></div>
+      <div class="row2"><div class="field"><label>Map pin latitude</label><input name="launchLat" type="number" step="0.0001" value="${S.launchEvent.lat}"></div>
+        <div class="field"><label>Map pin longitude</label><input name="launchLng" type="number" step="0.0001" value="${S.launchEvent.lng}"></div></div>
+      <div class="field"><label>Launch description</label><textarea name="launchDesc">${esc(S.launchEvent.description)}</textarea></div>
+    </div>
     <div class="card" style="margin-bottom:16px"><h3>Start, finish and route</h3>
       <p class="small muted">Shown publicly as “To be confirmed” until you tick the box below.</p>
       <div class="row2"><div class="field"><label>Start location</label><input name="startLocation" type="text" value="${esc(S.event.startLocation)}" placeholder="e.g. Main gate, Melorane ERP Game Reserve"></div>
@@ -550,6 +589,10 @@ function settingsView(m, D) {
     const patch = {
       event: { startTime: f.startTime.value.trim(), startTimeConfirmed: f.startTimeConfirmed.checked && !!f.startTime.value.trim(), pickupPlace: f.pickupPlace.value.trim(), pickupTime: f.pickupTime.value.trim(), pickupFullAddress: f.pickupFullAddress.value.trim(), pickupAddressConfirmed: f.pickupAddressConfirmed.checked && !!f.pickupFullAddress.value.trim(), proceedsText: f.proceedsText.value.trim(),
         startLocation: f.startLocation.value.trim(), finishLocation: f.finishLocation.value.trim(), routeDescription: f.routeDescription.value.trim(), routeConfirmed: f.routeConfirmed.checked },
+      registration: { opensOn: f.opensOn.value },
+      launchEvent: { open: f.launchOpen.checked, date: f.launchDate.value, dateConfirmed: f.launchDateOk.checked && !!f.launchDate.value, time: f.launchTime.value.trim(), timeConfirmed: f.launchTimeOk.checked,
+        venue: f.launchVenue.value.trim(), venueDetail: f.launchVenueDetail.value.trim(), venueConfirmed: f.launchVenueOk.checked && !!f.launchVenueDetail.value.trim(),
+        lat: Number(f.launchLat.value), lng: Number(f.launchLng.value), description: f.launchDesc.value.trim() },
       socks: { price: cents(f.socksPrice.value), confirmed: f.socksConfirmed.checked, maxPerEntry: parseInt(f.socksMax.value, 10), enabled: f.socksEnabled.checked },
       pools: { combined: { limit: parseInt(f.poolCombined.value, 10) }, community: { limit: parseInt(f.poolCommunity.value, 10) } },
       reservation: { expiryHours: Number(f.expiryHours.value) },
@@ -577,6 +620,9 @@ function settingsView(m, D) {
 function checklistView(m, D) {
   const S = D.settings;
   const items = [
+    ['Launch event date', S.launchEvent.dateConfirmed],
+    ['Launch event time', S.launchEvent.timeConfirmed],
+    ['Launch event exact venue at Hazeldean', S.launchEvent.venueConfirmed],
     ['Exact race start time', S.event.startTimeConfirmed],
     ['Melorane employee entry fee', S.fees.melorane_employee.confirmed],
     ['Community member entry fee', S.fees.community.confirmed],

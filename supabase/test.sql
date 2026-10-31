@@ -8,7 +8,8 @@ create or replace function t_person(cat text, i int, dist text default '21k', co
 $$;
 
 insert into invite_codes values ('GROUP-TEST', 'group_employee', 1000, 0), ('MEL-TEST', 'melorane_employee', null, 0);
-update event_settings set accept_unconfirmed_fee = true;
+-- Open race entries for the race tests; check 12 tests the closed state.
+update event_settings set accept_unconfirmed_fee = true, registration_opens_on = current_date - 1;
 
 -- 1. Combined pool of 34: last accepted, next waitlisted; both distances share it.
 do $$ declare r registrations; begin
@@ -118,4 +119,18 @@ do $$ declare r registrations; d donations; begin
   assert (select status from donations where id = d.id) = 'paid', 'donation paid';
   assert (public_summary()->>'runners_funded')::int = 2, 'runners funded';
   raise notice 'PASS socks add-on charge and monetary donations';
+end $$;
+
+-- 12. Race entries closed to the public before the opening date; launch event open to anyone, personal emails flagged.
+do $$ declare ok boolean := false; a launch_registrations; b launch_registrations; dup boolean := false; begin
+  update event_settings set registration_opens_on = current_date + 30;
+  begin perform reserve_registration(t_person('other', 900)); exception when others then ok := true; end;
+  assert ok, 'race entry should be refused before the opening date';
+  a := register_for_launch('{"client_request_id":"l1","first_name":"Thandi","surname":"Nkosi","email":"thandi@acme.co.za"}');
+  b := register_for_launch('{"client_request_id":"l2","first_name":"Pieter","surname":"Smit","email":"Pieter@Gmail.com"}');
+  assert not a.personal_email and b.personal_email, 'gmail flagged, business not';
+  begin perform register_for_launch('{"client_request_id":"l3","first_name":"P","surname":"S","email":"pieter@gmail.com"}'); exception when others then dup := true; end;
+  assert dup, 'same email twice refused';
+  update event_settings set registration_opens_on = current_date - 1;
+  raise notice 'PASS race entries closed before opening date; launch registration flags personal email';
 end $$;

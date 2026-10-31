@@ -9,9 +9,11 @@ function eq(a, b, msg) { if (a !== b) throw new Error(`${msg}: expected ${JSON.s
 
 const HOUR = 3600000;
 
-function setup() {
+// The clock is October 2026, before race entries open. Most scenarios test race rules, so they open entries first.
+async function setup({ open = true } = {}) {
   const clock = { t: Date.UTC(2026, 9, 23, 8) };
   const be = new Backend({ storage: memoryStorage(), now: () => clock.t, lock: inProcessLock(), seed: false });
+  if (open) await be._write((s) => { s.settings.registration.opensOn = '2026-10-01'; });
   return { be, clock };
 }
 
@@ -52,7 +54,7 @@ export const scenarios = [
   {
     name: 'Combined pool of 34 accepts the last place and waitlists the next person',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const regs = await fill(be, 'other', 20);
       regs.push(...await fill(be, 'group_employee', 13));
       const last = await be.submitRegistration(person('other'));
@@ -66,7 +68,7 @@ export const scenarios = [
   {
     name: 'Community pool accepts 16 participants and waitlists the 17th',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const regs = await fill(be, 'community', 16);
       assert(regs.every((r) => r.status === 'reserved'), 'first 16 should hold places');
       const next = await be.submitRegistration(person('community'));
@@ -76,7 +78,7 @@ export const scenarios = [
   {
     name: 'Melorane employee entries do not reduce either limited pool',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       await fill(be, 'other', 34);
       await fill(be, 'community', 16);
       const mel = await fill(be, 'melorane_employee', 10);
@@ -89,7 +91,7 @@ export const scenarios = [
   {
     name: 'Both distances draw from the same category pool',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       await fill(be, 'other', 34, (i) => (i % 2 ? '5k' : '21k'));
       const a = await be.submitRegistration(person('other', '5k'));
       const b = await be.submitRegistration(person('group_employee', '21k'));
@@ -100,7 +102,7 @@ export const scenarios = [
   {
     name: 'Simultaneous requests for the final place cannot overbook',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       await fill(be, 'other', 33);
       const results = await Promise.all(Array.from({ length: 10 }, (_, i) => be.submitRegistration(person(i % 2 ? 'other' : 'group_employee', i % 2 ? '5k' : '21k'))));
       eq(results.filter((r) => r.status === 'reserved').length, 1, 'exactly one gets the last place');
@@ -111,7 +113,7 @@ export const scenarios = [
   {
     name: 'Expired reservations release capacity and nobody is promoted automatically',
     async run() {
-      const { be, clock } = setup();
+      const { be, clock } = await setup();
       const regs = await fill(be, 'other', 34);
       const wl = await be.submitRegistration(person('other'));
       eq(wl.status, 'waitlisted', 'pool full');
@@ -131,7 +133,7 @@ export const scenarios = [
   {
     name: 'Repeated payment notifications do not create duplicate payments',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const r = await be.submitRegistration(person('other'));
       const a = await payEntry(be, r.ref, 'evt-1');
       const b = await payEntry(be, r.ref, 'evt-1');
@@ -149,7 +151,7 @@ export const scenarios = [
   {
     name: 'Duplicate form submissions create only one entry',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const p = person('community');
       const [a, b] = await Promise.all([be.submitRegistration(p), be.submitRegistration(p)]);
       eq(a.ref, b.ref, 'same reference returned');
@@ -159,7 +161,7 @@ export const scenarios = [
   {
     name: 'A browser redirect or forged notification does not mark a payment received',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const r = await be.submitRegistration(person('other'));
       await be.startCheckout(r.ref + '-E');
       const forged = await be.providerNotification({ eventId: 'x', chargeRef: r.ref + '-E', amount: 100000, status: 'paid', signature: 'bad' });
@@ -171,7 +173,7 @@ export const scenarios = [
   {
     name: 'Canvas Lodge refuses a one-night booking (minimum two nights)',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       let err = null;
       try { await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-16', departure: '2027-04-17' }, transportAck: false })); } catch (e) { err = e; }
       assert(err && err.fields && /minimum of 2 nights/.test(err.fields.lodgeDates), 'one-night stay should be refused');
@@ -188,7 +190,7 @@ export const scenarios = [
     async run() {
       const q = lodgeQuote({ nights: 2, ratePerNight: 550000, depositPercent: 20 });
       eq(q.total, 1100000, 'total'); eq(q.deposit, 220000, 'deposit'); eq(q.balance, 880000, 'balance');
-      const { be } = setup();
+      const { be } = await setup();
       const r = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-15', departure: '2027-04-17' }, transportAck: false }));
       eq(r.lodge.total, 1100000, 'stored total'); eq(r.lodge.deposit, 220000, 'stored deposit'); eq(r.lodge.balance, 880000, 'stored balance');
     },
@@ -196,7 +198,7 @@ export const scenarios = [
   {
     name: 'Entry fees stay separate from accommodation',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const r = await be.submitRegistration(person('other', '21k', { lodge: { wanted: true, arrival: '2027-04-16', departure: '2027-04-18' }, transportAck: false }));
       const kinds = r.charges.map((c) => c.kind + ':' + c.amount).sort();
       eq(kinds.join(','), 'entry:100000,lodge_balance:880000,lodge_deposit:220000', 'separate charges');
@@ -214,7 +216,7 @@ export const scenarios = [
   {
     name: 'A water point cannot be sponsored twice',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const sp = (name) => ({ point: 3, name, contactPerson: 'X', email: 'x@example.org', phone: '0110000000', clientRequestId: name });
       const res = await Promise.allSettled([be.submitSponsorship(sp('Alpha')), be.submitSponsorship(sp('Beta'))]);
       eq(res.filter((r) => r.status === 'fulfilled').length, 1, 'one succeeds');
@@ -226,7 +228,7 @@ export const scenarios = [
   {
     name: 'Donations are money only: R2,500 per runner, counted once received',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       assert(typeof be.submitPledge !== 'function', 'physical donation pledges are no longer accepted');
       const c = await be.submitContribution({ mode: 'runners', runners: 3, donor: 'Donor', email: 'd@example.org' });
       eq(c.amount, 750000, '3 runners × R2,500');
@@ -247,7 +249,7 @@ export const scenarios = [
   {
     name: 'Every entry, including group entries, needs a RunWild shirt size',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       for (const cat of ['group_employee', 'other', 'community', 'melorane_employee']) {
         let err = null;
         try { await be.submitRegistration(person(cat, '21k', { shirtSize: '' })); } catch (e) { err = e; }
@@ -261,7 +263,7 @@ export const scenarios = [
   {
     name: 'Socks are a separate add-on, charged only once the price is confirmed',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const a = await be.submitRegistration(person('other', '21k', { socks: { qty: 2, size: 'M (UK 6–8)' } }));
       eq(a.socks.qty, 2, 'order recorded');
       assert(!a.charges.some((c) => c.kind === 'socks'), 'no sock charge while the price is unconfirmed');
@@ -281,7 +283,7 @@ export const scenarios = [
   {
     name: 'Melorane employees: unlimited entries with one code, and can ask for kit with sizes',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const regs = await fill(be, 'melorane_employee', 150);
       assert(regs.every((r) => r.status === 'reserved' && r.verification === 'verified'), 'code works for every Melorane employee');
       let err = null;
@@ -294,9 +296,50 @@ export const scenarios = [
     },
   },
   {
+    name: 'Race entries are closed to the public until 1 February 2027',
+    async run() {
+      const { be, clock } = await setup({ open: false });
+      let err = null;
+      try { await be.submitRegistration(person('other')); } catch (e) { err = e; }
+      assert(err && /open on 1 February 2027/.test(err.message), 'public entry refused before opening');
+      eq((await be.publicSummary()).registration.open, false, 'summary says closed');
+      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      const assisted = await be.submitRegistration(person('other'), { token: tok });
+      eq(assisted.status, 'reserved', 'organisers can still register people');
+      clock.t = Date.UTC(2027, 0, 31, 21, 59);   // 23:59 on 31 Jan in Johannesburg
+      let still = false;
+      try { await be.submitRegistration(person('other')); } catch { still = true; }
+      assert(still, 'still closed the evening before');
+      clock.t = Date.UTC(2027, 0, 31, 22, 1);    // 00:01 on 1 Feb in Johannesburg
+      eq((await be.submitRegistration(person('other'))).status, 'reserved', 'open from 1 February (SAST)');
+    },
+  },
+  {
+    name: 'Launch event: anyone can register; personal emails are flagged but accepted',
+    async run() {
+      const { be } = await setup({ open: false });
+      const biz = await be.submitLaunchRegistration({ firstName: 'Thandi', surname: 'Nkosi', email: 'thandi@acme.co.za' });
+      eq(biz.personalEmail, false, 'business email not flagged');
+      const g = await be.submitLaunchRegistration({ firstName: 'Pieter', surname: 'Smit', email: 'Pieter.Smit@GMAIL.com' });
+      eq(g.personalEmail, true, 'gmail flagged');
+      eq(g.email, 'pieter.smit@gmail.com', 'email stored in lower case');
+      const o = await be.submitLaunchRegistration({ firstName: 'Ann', surname: 'Lee', email: 'ann@outlook.com' });
+      eq(o.personalEmail, true, 'outlook flagged');
+      let dup = null;
+      try { await be.submitLaunchRegistration({ firstName: 'P', surname: 'S', email: 'pieter.smit@gmail.com' }); } catch (e) { dup = e; }
+      assert(dup && dup.fields.email, 'same email cannot register twice');
+      let bad = null;
+      try { await be.submitLaunchRegistration({ firstName: '', surname: '', email: 'nope' }); } catch (e) { bad = e; }
+      assert(bad && bad.fields.firstName && bad.fields.surname && bad.fields.email, 'name, surname and a valid email are required');
+      eq(await be._read((s) => s.registrations.length), 0, 'launch registration is not a race entry');
+      const pub = JSON.stringify(await be.publicSummary());
+      assert(!pub.includes('thandi@acme.co.za'), 'launch registrations are not public');
+    },
+  },
+  {
     name: 'Private participant data is inaccessible to public visitors',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const r = await be.submitRegistration(person('community'));
       const pub = JSON.stringify(await be.publicSummary());
       assert(!pub.includes(r.fullName), 'public summary must not contain names');
@@ -312,7 +355,7 @@ export const scenarios = [
   {
     name: 'Employee category without a valid code holds no place until verified',
     async run() {
-      const { be } = setup();
+      const { be } = await setup();
       const r = await be.submitRegistration(person('melorane_employee', '5k', { inviteCode: 'WRONG' }));
       eq(r.status, 'draft', 'unverified entry');
       eq(r.charges.length, 0, 'nothing payable');

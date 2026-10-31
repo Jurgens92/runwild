@@ -39,6 +39,8 @@ on conflict do nothing;
 create table if not exists event_settings (
   id                     boolean primary key default true check (id),
   reservation_hours      integer not null default 72 check (reservation_hours > 0),
+  registration_opens_on  date not null default '2027-02-01',   -- race entries closed to the public before this (SAST)
+  launch_open            boolean not null default true,
   accept_unconfirmed_fee boolean not null default false,
   lodge_rate_cents       integer not null default 550000,
   lodge_deposit_percent  integer not null default 20 check (lodge_deposit_percent between 0 and 100),
@@ -253,7 +255,8 @@ begin
     r := prefix || '-';
     for i in 1..5 loop r := r || substr(alphabet, 1 + floor(random() * 32)::int, 1); end loop;
     exit when not exists (select 1 from registrations where ref = r) and not exists (select 1 from sponsorships where ref = r)
-      and not exists (select 1 from donations where ref = r);
+      and not exists (select 1 from donations where ref = r)
+      and not exists (select 1 from launch_registrations where ref = r);
   end loop;
   return r;
 end $$;
@@ -297,6 +300,9 @@ begin
   select * into v_set from event_settings;
   if not v_cat.fee_confirmed and not v_set.accept_unconfirmed_fee then
     raise exception 'registration for this category opens once the fee is confirmed';
+  end if;
+  if (now() at time zone 'Africa/Johannesburg')::date < v_set.registration_opens_on and not is_organiser() then
+    raise exception 'Race entries open on %', to_char(v_set.registration_opens_on, 'FMDD FMMonth YYYY') using errcode = 'P0001';
   end if;
   if coalesce((p->>'terms_accepted')::boolean, false) is not true then raise exception 'terms must be accepted'; end if;
   if coalesce(p->>'shirt_size', '') = '' then raise exception 'choose a RunWild shirt size'; end if;
@@ -469,6 +475,47 @@ begin
   return v;
 end $$;
 
+-- ---------- launch event ----------
+
+-- Anyone can register for the launch event. Personal mailbox domains are flagged, never refused.
+create table if not exists launch_registrations (
+  id                uuid primary key default gen_random_uuid(),
+  ref               text not null unique,
+  client_request_id text not null unique,
+  first_name        text not null check (length(trim(first_name)) > 0),
+  surname           text not null check (length(trim(surname)) > 0),
+  email             text not null check (email ~ '^[^\s@]+@[^\s@]+\.[^\s@]+$'),
+  personal_email    boolean not null default false,
+  status            text not null default 'registered' check (status in ('registered', 'cancelled')),
+  created_at        timestamptz not null default now()
+);
+create unique index if not exists launch_one_per_email on launch_registrations (lower(email)) where status <> 'cancelled';
+
+create or replace function is_personal_email(p_email text) returns boolean language sql immutable as $$
+  select split_part(lower(p_email), '@', 2) = any (array[
+    'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.za', 'yahoo.co.uk', 'ymail.com', 'rocketmail.com',
+    'hotmail.com', 'hotmail.co.za', 'hotmail.co.uk', 'outlook.com', 'outlook.co.za', 'live.com', 'live.co.za', 'live.co.uk', 'msn.com',
+    'icloud.com', 'me.com', 'mac.com', 'aol.com', 'protonmail.com', 'proton.me', 'pm.me', 'gmx.com', 'gmx.net', 'mail.com',
+    'yandex.com', 'zohomail.com', 'webmail.co.za', 'mweb.co.za', 'telkomsa.net', 'vodamail.co.za', 'absamail.co.za',
+    'iafrica.com', 'lantic.net', 'afrihost.co.za', 'cybersmart.co.za', 'vox.co.za', 'polka.co.za'])
+    or split_part(lower(p_email), '@', 2) ~ '^(yahoo|hotmail|outlook|live|gmail)\.';
+$$;
+
+create or replace function register_for_launch(p jsonb) returns launch_registrations
+language plpgsql security definer set search_path = public as $$
+declare v launch_registrations; v_email text := lower(trim(p->>'email'));
+begin
+  select * into v from launch_registrations where client_request_id = p->>'client_request_id';
+  if found then return v; end if;
+  if not (select launch_open from event_settings) then raise exception 'Launch event registration is closed' using errcode = 'P0001'; end if;
+  insert into launch_registrations (ref, client_request_id, first_name, surname, email, personal_email)
+  values (new_ref('RWL'), p->>'client_request_id', trim(p->>'first_name'), trim(p->>'surname'), v_email, is_personal_email(v_email))
+  returning * into v;
+  return v;
+exception when unique_violation then
+  raise exception 'This email address is already registered for the launch event' using errcode = 'P0001';
+end $$;
+
 -- ---------- public and participant reads ----------
 
 create or replace function public_summary() returns jsonb
@@ -525,7 +572,7 @@ end $$;
 
 do $$ declare t text; begin
   foreach t in array array['capacity_pools', 'categories', 'event_settings', 'invite_codes', 'organisers', 'registrations', 'charges', 'payments',
-                           'provider_events', 'audit_log', 'water_points', 'sponsorships', 'lodge_nights', 'lodge_requests', 'donations', 'stock_items', 'buddy_matches'] loop
+                           'provider_events', 'audit_log', 'water_points', 'sponsorships', 'lodge_nights', 'lodge_requests', 'donations', 'stock_items', 'buddy_matches', 'launch_registrations'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists organisers_all on %I', t);
     execute format('create policy organisers_all on %I for all to authenticated using (is_organiser()) with check (is_organiser())', t);
@@ -541,6 +588,6 @@ drop policy if exists public_read on water_points;   create policy public_read o
 revoke all on all tables in schema public from anon;
 grant select on categories, capacity_pools, lodge_nights, water_points to anon;
 revoke execute on all functions in schema public from public, anon;
-grant execute on function reserve_registration(jsonb), reserve_water_point(jsonb), create_donation(jsonb), public_summary(), my_entry(text, text) to anon, authenticated;
+grant execute on function reserve_registration(jsonb), reserve_water_point(jsonb), create_donation(jsonb), register_for_launch(jsonb), public_summary(), my_entry(text, text) to anon, authenticated;
 grant execute on function record_eft(uuid, integer, text), is_organiser() to authenticated;
 -- apply_provider_payment and release_expired run only as the service role (webhook / scheduled job).
