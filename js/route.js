@@ -2,7 +2,8 @@
 // The courses below are SAMPLE shapes generated for the preview. Replace ROUTES with the
 // organisers' real GPX track (lat/lng/elevation) once the course is confirmed.
 
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => 
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TBC = '<span class="tbc">To be confirmed</span>';
 
 // Start, finish and route as published by the organisers. Until they confirm them, each shows "To be confirmed".
@@ -176,7 +177,7 @@ export function routeExplorer(el, { initial = '21k', event = {} } = {}) {
             <div><dt>Water points</dt><dd>${r.waterPoints.length}</dd></div>
           </dl>
           ${routeFacts(event)}
-          <p class="rt-terrain"><span class="label muted">Terrain</span><br>${r.terrain} (sample).</p>
+          <p class="rt-terrain"><span class="label muted">Terrain</span><br>${r.terrain}</p>
           <p class="rt-legend small muted"><span><i class="sw" style="background:${r.colour}"></i>${r.label}</span>${key === '21k' ? '<span><i class="sw dash"></i>5 km loop</span>' : ''}<span><i class="sw drop"></i>Water point</span></p>
         </div>
       </div>
