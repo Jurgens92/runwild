@@ -6,7 +6,9 @@ It includes registration with capacity pools and a waitlist, RunWild shirt sizes
 
 Race entries are **closed to the public until 1 February 2027** (set under Settings; organisers can still register people). Until then the site points visitors to the **launch event** at Hazeldean Valley Trails, Pretoria East (`#/launch`): anyone can register with name, surname and business email. Personal addresses such as Gmail or Outlook are flagged for the organisers but still accepted.
 
-Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): start and finish locations and the running route, the launch event date and time, the sock price, and the community and Melorane entry fees.
+Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): start and finish locations and the running route, the launch event date and time, and the sock price.
+
+Community members and Melorane employees enter **free**. Every one of their entries is checked by an organiser (dashboard → **Verification**): the place is held meanwhile, **Verify** confirms it and **Decline** cancels it. Melorane employees no longer need an invitation code. Which categories are checked is set under Settings.
 
 | | |
 |---|---|

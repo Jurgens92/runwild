@@ -618,7 +618,7 @@ async function info(el) {
     ['What does the entry fee cover?', esc(ev.proceedsText) + ' Every entry also includes a RunWild running shirt.'],
     ['Do I get a running shirt?', 'Yes. Every entry, including group entries, includes a RunWild running shirt. Choose your shirt size when you register.'],
     ['Can I buy socks?', `Yes. RunWild running socks are an optional add-on when you register, or later from “My entry”. ${s.socks.confirmed && s.socks.price ? 'They cost ' + rand(s.socks.price) + ' a pair, paid separately from the entry fee.' : 'The price is still to be confirmed – you can order now and nothing is payable for socks until the price is set.'}`],
-    ['What is an employee invitation code?', 'Group employees and Melorane employees get an invitation code from the organisers (usually through their employer). Entering it on the registration form confirms you are an employee straight away, so your place is allocated immediately. No code, or a code that does not work? You can still register – your entry waits for an organiser to verify your employment before a place is allocated, and nothing is payable until then. Codes only confirm employment; they do not give a discount.'],
+    ['What is an employee invitation code?', 'Group employees get an invitation code from the organisers (usually through their employer). Entering it on the registration form confirms you are an employee straight away, so your place is allocated immediately. Melorane employees and community members do not need a code: their entry is free, and an organiser checks each one before confirming it (the place is held in the meantime). No code, or a code that does not work? You can still register – your entry waits for an organiser to verify your employment before a place is allocated, and nothing is payable until then. Codes only confirm employment; they do not give a discount.'],
     ['I need running shoes or kit. Can I get some?', `Community members and Melorane employees can ask for running shoes and kit when they register and give their sizes. ERP buys the items with donated money (budgeted at ${rand(s.donations.perRunner)} per runner for shoes, shorts, shirt, socks and a cap) and hands them out before race day. We cannot promise items, but we will do our best.`],
     ['How do I get there?', `Community participants are picked up from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)} on ${formatDate(ev.date)}${ev.pickupAddressConfirmed && ev.pickupFullAddress ? ' (' + esc(ev.pickupFullAddress) + ')' : ''}. Everyone else arranges their own transport and must arrive at the reserve on time, or stays at Canvas Lodge (minimum ${s.lodge.minNights} nights).`],
     ['How long is my place held while I pay?', `An unpaid reservation is held for ${s.reservationHours} hours. After that the place is released. If someone is on the waitlist, the organisers contact them – nobody is charged or confirmed automatically.`],
@@ -706,7 +706,9 @@ export function confirmationHTML(r) {
   const lodgeCharges = charges.filter((c) => c.kind.startsWith('lodge'));
   const sockCharges = charges.filter((c) => c.kind === 'socks');
   const statusText = {
-    reserved: r.holdReason === 'fee_unconfirmed'
+    reserved: r.holdReason === 'awaiting_verification'
+      ? 'Your place is held while an organiser checks your entry. There is nothing to pay – we will let you know once it is confirmed.'
+      : r.holdReason === 'fee_unconfirmed'
       ? 'Your place is held. The entry fee for your category has not been confirmed yet, so nothing is payable now. We will let you know the fee before anything is due.'
       : `Your place is reserved until <strong>${formatDateTime(r.expiresAt)}</strong>. Pay the charitable entry fee before then to confirm it. Unpaid reservations are released automatically.`,
     confirmed: 'Your entry is confirmed. See you at Melorane!',
@@ -727,7 +729,7 @@ export function confirmationHTML(r) {
       <tr><th>Race day</th><td>${formatDate(r.event.date)} · ${r.event.startTime ? esc(r.event.startTime) : 'Early start – exact time to be confirmed'}</td></tr>
       ${r.category === 'community' ? `<tr><th>Pickup</th><td>${esc(r.event.pickupPlace)} at ${esc(r.event.pickupTime)} on ${formatDate(r.event.date)}${r.event.pickupFullAddress ? ' – ' + esc(r.event.pickupFullAddress) : ''}</td></tr>` : `<tr><th>Getting there</th><td>${r.lodgeWanted ? 'Staying at Canvas Lodge (see below).' : 'Early start from Melorane ERP Game Reserve. You arrange your own transport and arrive on time.'}</td></tr>`}
       ${r.buddy ? `<tr><th>Run Buddy</th><td>${r.buddy.optIn ? statusPill(r.buddy.status || 'awaiting_match') : 'Not taking part'}</td></tr>` : ''}
-      ${!entry && r.status !== 'waitlisted' && r.status !== 'draft' ? `<tr><th>Entry fee</th><td>${r.fee.confirmed ? rand(r.fee.amount) : '<span class="tbc">To be confirmed</span>'}</td></tr>` : ''}
+      ${!entry && r.status !== 'waitlisted' && r.status !== 'draft' ? `<tr><th>Entry fee</th><td>${r.fee.confirmed ? (r.fee.amount ? rand(r.fee.amount) : 'Free') : '<span class="tbc">To be confirmed</span>'}</td></tr>` : ''}
     </tbody></table>
     <div class="notice ${r.status === 'confirmed' ? 'ok' : r.status === 'cancelled' ? 'bad' : 'sun'}" style="margin-top:16px"><p>${statusText}</p></div>
     ${r.lodge ? `<h3>Canvas Lodge</h3>

@@ -4,7 +4,7 @@ import { AuthError, ROLES } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
 
 const TABS = [
-  ['overview', 'Overview'], ['launch', 'Launch event'], ['participants', 'Participants'], ['verify', 'Employee verification'], ['waitlist', 'Waitlist & cancelled'],
+  ['overview', 'Overview'], ['launch', 'Launch event'], ['participants', 'Participants'], ['verify', 'Verification'], ['waitlist', 'Waitlist & cancelled'],
   ['payments', 'Payments'], ['shirts', 'Shirts & socks'], ['lodge', 'Canvas Lodge'], ['water', 'Water points'], ['donations', 'Donations & kit'],
   ['buddies', 'Run Buddy'], ['pickup', 'Pickup list'], ['messages', 'Messages'], ['audit', 'Audit trail'],
   ['settings', 'Settings'], ['users', 'Users'], ['checklist', 'Launch checklist'], ['tests', 'Verification tests'], ['account', 'My account'],
@@ -88,7 +88,7 @@ async function act(action, args, msg = 'Saved') {
 function refresh() { renderOrganiser($('#app'), [tab]); }
 
 function draw(el, D) {
-  const pending = D.registrations.filter((r) => r.verification === 'pending' && r.status === 'draft').length;
+  const pending = D.registrations.filter(awaitingCheck).length;
   const attention = [...D.registrations, ...D.lodgeRequests, ...D.sponsorships].filter((r) => r.attention).length;
   el.innerHTML = `<div class="org-shell">
     <nav class="org-side" aria-label="Dashboard sections">
@@ -106,6 +106,10 @@ function draw(el, D) {
 }
 
 // ---------- helpers ----------
+
+// Entries waiting for an organiser: employees without a valid code (no place yet), and free
+// community / Melorane entries (place held, or on the waitlist).
+const awaitingCheck = (r) => r.verification === 'pending' && r.status !== 'cancelled';
 
 // "Race entries are OPEN (switched on by hand)" etc., for the Overview and Settings.
 function entriesStatus(D) {
@@ -142,6 +146,7 @@ function regStatus(D, r) {
   let s = statusPill(r.status);
   if (r.status === 'reserved' && r.expiresAt) s += `<br><span class="small muted">until ${formatDateTime(r.expiresAt)}</span>`;
   if (r.holdReason === 'fee_unconfirmed') s += '<br><span class="small muted">held – fee unconfirmed</span>';
+  if (r.verification === 'pending' && r.status !== 'cancelled') s += '<br><span class="small muted">' + (r.status === 'draft' ? 'awaiting verification – no place yet' : 'awaiting check by an organiser') + '</span>';
   if (r.status === 'cancelled' && r.cancelReason) s += `<br><span class="small muted">${esc(r.cancelReason === 'reservation_expired' ? 'reservation expired' : r.cancelReason)}</span>`;
   if (r.attention) s += `<br><span class="attention">${esc(r.attention)}</span>`;
   return s;
@@ -208,7 +213,7 @@ const VIEWS = {
     const byCat = Object.keys(CATEGORIES).map((c) => {
       const rs = regs.filter((r) => r.category === c);
       const n = (dist, st) => rs.filter((r) => r.distance === dist && st.includes(r.status)).length;
-      return `<tr><td>${esc(catLabel(c))}</td>${['21k', '5k'].map((dd) => `<td class="num">${n(dd, ['confirmed'])}</td><td class="num">${n(dd, ['reserved'])}</td>`).join('')}<td class="num">${rs.filter((r) => r.status === 'waitlisted').length}</td><td class="num">${rs.filter((r) => r.status === 'draft').length}</td></tr>`;
+      return `<tr><td>${esc(catLabel(c))}</td>${['21k', '5k'].map((dd) => `<td class="num">${n(dd, ['confirmed'])}</td><td class="num">${n(dd, ['reserved'])}</td>`).join('')}<td class="num">${rs.filter((r) => r.status === 'waitlisted').length}</td><td class="num">${rs.filter(awaitingCheck).length}</td></tr>`;
     });
     const sum = (kinds) => D.chargeViews.filter((c) => kinds.includes(c.kind)).reduce((a, c) => ({ due: a.due + c.amount, paid: a.paid + c.paid, out: a.out + c.outstanding }), { due: 0, paid: 0, out: 0 });
     const money = [['Entry fees', ['entry']], ['Sock add-ons', ['socks']], ['Lodge deposits', ['lodge_deposit']], ['Lodge balances', ['lodge_balance']], ['Water point sponsorships', ['sponsorship']], ['Financial donations', ['donation']]]
@@ -226,7 +231,7 @@ const VIEWS = {
         <div class="kpi"><span class="label">Community members</span><div class="stat">${u.community.used} / ${u.community.limit}</div><div class="small">${u.community.remaining} remaining · ${u.community.confirmed} confirmed, ${u.community.reserved} reserved</div></div>
         <div class="kpi"><span class="label">Melorane employees</span><div class="stat">${mel.length}</div><div class="small">unlimited · outside both pools</div></div>
         <div class="kpi"><span class="label">Waitlisted</span><div class="stat">${u.combined.waitlisted + u.community.waitlisted}</div><div class="small">${u.combined.waitlisted} combined · ${u.community.waitlisted} community</div></div>
-        <div class="kpi"><span class="label">Awaiting verification</span><div class="stat">${regs.filter((r) => r.status === 'draft').length}</div><div class="small">employee entries, no place held</div></div>
+        <div class="kpi"><span class="label">Awaiting verification</span><div class="stat">${regs.filter(awaitingCheck).length}</div><div class="small">see Verification</div></div>
       </div>
       ${att.length ? `<h3>Needs attention</h3>${table(['Record', 'Issue', ''], att.map(([k, id, ref, msg]) => `<tr><td class="ref">${esc(ref || '')}</td><td>${esc(msg)}</td><td><button class="btn small plain" data-clear="${k}|${id}">Mark resolved</button></td></tr>`))}` : ''}
       <h3>Participants by category and distance</h3>
@@ -296,12 +301,13 @@ const VIEWS = {
   },
 
   verify(m, D) {
-    const rs = D.registrations.filter((r) => r.verification === 'pending' && r.status === 'draft');
-    const recent = D.registrations.filter((r) => r.category.endsWith('employee') && r.verification !== 'pending').slice(-10).reverse();
-    m.innerHTML = `<h2>Employee verification</h2>
-      <p class="muted">Employee entries without a valid invitation code wait here. They hold no place and nothing is payable until verified. Approving allocates a place (or waitlists if the pool is full).</p>
-      ${table(['Ref', 'Name', 'Category', 'Employer', 'Code given', 'Registered', ''], rs.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}</td><td>${esc(catLabel(r.category))}</td><td>${esc(r.employer)}</td><td>${esc(r.inviteCodeTried || '—')}</td><td>${formatDateTime(r.createdAt)}</td>
-        <td><div class="btn-row"><button class="btn small" data-ok="${r.id}">Verify</button><button class="btn small plain" data-other="${r.id}">Move to “Other”</button><button class="btn small danger" data-no="${r.id}">Decline</button></div></td></tr>`), 'No entries are waiting for verification.')}
+    const rs = D.registrations.filter(awaitingCheck).sort((a, b) => a.createdAt - b.createdAt);
+    const recent = D.registrations.filter((r) => r.verification === 'verified' || r.verification === 'declined').sort((a, b) => b.createdAt - a.createdAt).slice(0, 10);
+    const checkedCats = (D.settings.verifyCategories || []).map(catLabel).join(' and ').toLowerCase().replace('melorane', 'Melorane');
+    m.innerHTML = `<h2>Verification</h2>
+      <p class="muted">${checkedCats ? `Every ${esc(checkedCats)} entry is free and waits here for an organiser to check it. Their place is held meanwhile (or they are on the waitlist if the pool was full). <strong>Verify</strong> confirms the entry; <strong>Decline</strong> cancels it and frees the place.` : ''} Group employees without a valid invitation code also wait here, with no place held until verified.</p>
+      ${table(['Ref', 'Name', 'Category', 'Distance', 'Mobile', 'Employer', 'Status', 'Registered', ''], rs.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${r.distance === '5k' ? '5 km' : '21 km'}</td><td>${esc(r.mobile)}</td><td>${esc(r.employer || '—')}${r.inviteCodeTried ? '<br><span class="small muted">code given: ' + esc(r.inviteCodeTried) + '</span>' : ''}</td><td>${statusPill(r.status, r.status === 'reserved' ? 'Place held' : undefined)}</td><td>${formatDateTime(r.createdAt)}</td>
+        <td><div class="btn-row"><button class="btn small" data-ok="${r.id}">Verify</button>${CATEGORIES[r.category].employee ? `<button class="btn small plain" data-other="${r.id}">Move to “Other”</button>` : ''}<button class="btn small danger" data-no="${r.id}">Decline</button></div></td></tr>`), 'No entries are waiting for verification.')}
       <h3>Recently verified</h3>
       ${table(['Ref', 'Name', 'Category', 'Verification', 'By'], recent.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${statusPill(r.verification)}</td><td>${esc(r.verifiedBy || '')}</td></tr>`))}
       <h3>Invitation codes</h3>
@@ -597,7 +603,7 @@ function settingsView(m, D) {
         <div class="field"><label>Community members</label><input name="poolCommunity" type="number" min="0" value="${S.pools.community.limit}"></div>
         <div class="field"><label>Unpaid reservation expiry (hours)</label><input name="expiryHours" type="number" min="1" value="${S.reservation.expiryHours}"></div></div>
       ${Object.keys(CATEGORIES).map((c) => `<div class="row3"><div class="field"><label>${esc(catLabel(c))} fee (R)</label><input name="fee_${c}" type="number" min="0" step="0.01" value="${r(S.fees[c].amount)}"></div>
-        <div class="field" style="align-self:end">${chk('feeok_' + c, S.fees[c].confirmed, 'Fee confirmed')}</div>
+        <div class="field" style="align-self:end">${chk('feeok_' + c, S.fees[c].confirmed, 'Fee confirmed')}${chk('verify_' + c, (S.verifyCategories || []).includes(c), 'Organisers check every entry')}</div>
         <div class="field" style="align-self:end">${S.fees[c].confirmed && D.registrations.some((x) => x.category === c && x.holdReason === 'fee_unconfirmed' && x.status === 'reserved') ? `<button type="button" class="btn small plain" data-issue="${c}">Issue payment requests to held entries</button>` : ''}</div></div>`).join('')}
       ${chk('acceptWhileFeeUnconfirmed', S.acceptWhileFeeUnconfirmed, 'Accept registrations while a category fee is unconfirmed (holds a place, nothing payable). <strong>Preview only – switch off before launch.</strong>')}
     </div>
@@ -673,6 +679,7 @@ function settingsView(m, D) {
       socks: { price: cents(f.socksPrice.value), confirmed: f.socksConfirmed.checked, maxPerEntry: parseInt(f.socksMax.value, 10), enabled: f.socksEnabled.checked },
       pools: { combined: { limit: parseInt(f.poolCombined.value, 10) }, community: { limit: parseInt(f.poolCommunity.value, 10) } },
       reservation: { expiryHours: Number(f.expiryHours.value) },
+      verifyCategories: Object.keys(CATEGORIES).filter((c) => f['verify_' + c].checked),
       fees: Object.fromEntries(Object.keys(CATEGORIES).map((c) => [c, { amount: cents(f['fee_' + c].value), confirmed: f['feeok_' + c].checked, label: S.fees[c].label }])),
       acceptWhileFeeUnconfirmed: f.acceptWhileFeeUnconfirmed.checked,
       lodge: {

@@ -15,6 +15,12 @@ export const CATEGORIES = {
 export const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
 export const SOCK_SIZES = ['S (UK 3–5)', 'M (UK 6–8)', 'L (UK 9–11)', 'XL (UK 12+)'];
 
+// Categories where an organiser checks every entry before it is confirmed (set under Settings).
+// Their place is held meanwhile, and invitation codes are not used.
+export function needsOrganiserCheck(settings, category) {
+  return (settings.verifyCategories || []).includes(category);
+}
+
 // An invitation code with maxUses null has no usage limit.
 export function codeHasUses(code) {
   return !!code && (code.maxUses === null || code.maxUses === undefined || code.uses < code.maxUses);

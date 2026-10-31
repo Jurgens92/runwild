@@ -277,15 +277,20 @@ export const scenarios = [
       const b = await be.submitRegistration(person('community'));
       const bm = await be._read((s) => s.registrations.find((x) => x.ref === b.ref).mobile);
       const after = await be.addSocksForEntry(b.ref, bm, 1, 'S (UK 3–5)');
-      eq(after.charges.find((c) => c.kind === 'socks').amount, 8000, 'socks added later from My entry');
+      eq(after.socks.qty, 1, 'socks added later from My entry');
+      assert(!after.charges.some((c) => c.kind === 'socks'), 'nothing payable while the entry awaits checking');
+      const bid = await be._read((s) => s.registrations.find((x) => x.ref === b.ref).id);
+      const v = await be.organiserAction(tok, 'verifyEmployee', { regId: bid, approve: true });
+      eq(v.charges.find((c) => c.kind === 'socks').amount, 8000, 'sock charge raised once verified');
     },
   },
   {
-    name: 'Melorane employees: unlimited entries with one code, and can ask for kit with sizes',
+    name: 'Melorane employees: free, unlimited, every entry checked by an organiser, and can ask for kit',
     async run() {
       const { be } = await setup();
       const regs = await fill(be, 'melorane_employee', 150);
-      assert(regs.every((r) => r.status === 'reserved' && r.verification === 'verified'), 'code works for every Melorane employee');
+      assert(regs.every((r) => r.status === 'reserved' && r.verification === 'pending' && r.holdReason === 'awaiting_verification'), 'all held, awaiting checking – no limit');
+      assert(regs.every((r) => r.charges.length === 0), 'free: nothing payable');
       let err = null;
       try { await be.submitRegistration(person('melorane_employee', '5k', { kit: { needsShoes: true, needsKit: true } })); } catch (e) { err = e; }
       assert(err && err.fields.shoeSize && err.fields.shortsSize, 'sizes required for the kit asked for');
@@ -484,11 +489,17 @@ export const scenarios = [
       old.version = SCHEMA_VERSION - 1;
       delete old.settings.socks;
       delete old.stock;
+      delete old.settings.verifyCategories;
+      old.settings.fees.community = { amount: null, confirmed: false, label: 'Entry fee' };
+      old.settings.fees.melorane_employee = { amount: null, confirmed: false, label: 'Entry fee' };
       storage.write(old);
       const d = await be.dashboard(t);
       eq(d.launchRegistrations.length, 1, 'existing data kept after upgrade');
       assert(d.settings.socks && Array.isArray(d.stock), 'new settings and collections filled in');
       assert(d.audit.some((a) => a.action === 'database.upgraded'), 'upgrade recorded');
+      eq(d.settings.fees.community.confirmed && d.settings.fees.community.amount, 0, 'community made free on upgrade');
+      eq(d.settings.fees.melorane_employee.confirmed && d.settings.fees.melorane_employee.amount, 0, 'Melorane made free on upgrade');
+      eq(d.settings.verifyCategories.join(','), 'community,melorane_employee', 'both checked by organisers');
     },
   },
   {
@@ -508,10 +519,37 @@ export const scenarios = [
     },
   },
   {
-    name: 'Employee category without a valid code holds no place until verified',
+    name: 'Community and Melorane entries are free, hold a place, and are confirmed or declined by an organiser',
     async run() {
       const { be } = await setup();
-      const r = await be.submitRegistration(person('melorane_employee', '5k', { inviteCode: 'WRONG' }));
+      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      const c = await be.submitRegistration(person('community'));
+      const m = await be.submitRegistration(person('melorane_employee', '5k', { inviteCode: 'MELORANE-PREVIEW' }));
+      for (const r of [c, m]) {
+        eq(r.status, 'reserved', r.category + ' place held');
+        eq(r.holdReason, 'awaiting_verification', r.category + ' awaiting check');
+        eq(r.charges.length, 0, r.category + ' free');
+      }
+      eq(m.verification, 'pending', 'a code does not skip the check for Melorane employees');
+      eq((await usage(be)).community.used, 1, 'held community entry uses a community place');
+      const id = (ref) => be._read((s) => s.registrations.find((x) => x.ref === ref).id);
+      const ok = await be.organiserAction(tok, 'verifyEmployee', { regId: await id(c.ref), approve: true });
+      eq(ok.status, 'confirmed', 'verified free entry is confirmed');
+      await be.organiserAction(tok, 'verifyEmployee', { regId: await id(m.ref), approve: false });
+      eq(await be._read((s) => s.registrations.find((x) => x.ref === m.ref).status), 'cancelled', 'declined entry cancelled');
+      // When the community pool is full, new entries are waitlisted (still to be checked) and keep their queue place when verified.
+      await fill(be, 'community', 15);
+      const wl = await be.submitRegistration(person('community'));
+      eq(wl.status, 'waitlisted', 'pool full → waitlist');
+      const w = await be.organiserAction(tok, 'verifyEmployee', { regId: await id(wl.ref), approve: true });
+      eq(w.status, 'waitlisted', 'verifying does not jump the waitlist');
+    },
+  },
+  {
+    name: 'Group employee without a valid code holds no place until verified',
+    async run() {
+      const { be } = await setup();
+      const r = await be.submitRegistration(person('group_employee', '5k', { inviteCode: 'WRONG' }));
       eq(r.status, 'draft', 'unverified entry');
       eq(r.charges.length, 0, 'nothing payable');
       await fill(be, 'other', 34);
