@@ -1,5 +1,5 @@
-import { api, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
-import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain } from './core.js';
+import { api, LIVE, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
+import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain, formatDay } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
 import { routeExplorer, routeFacts } from './route.js';
@@ -43,6 +43,9 @@ async function router() {
   window.scrollTo(0, 0);
   document.title = (app.dataset.title ? app.dataset.title + ' | ' : '') + 'Run Wild Melorane | ERP';
 }
+
+// On the live site the preview banner goes away.
+if (LIVE) $('#preview-strip')?.remove();
 
 window.addEventListener('hashchange', router);
 $('#menu-btn').addEventListener('click', () => {
@@ -125,14 +128,14 @@ async function home(el) {
   setTitle('');
   const s = await api.publicSummary();
   const ev = s.event;
-  const days = Math.ceil((new Date('2027-04-17T00:00:00+02:00') - Date.now()) / 86400000);
+  const days = Math.ceil((new Date(ev.date + 'T00:00:00+02:00') - Date.now()) / 86400000);
   el.innerHTML = `
   <section class="hero">
     <div class="wrap">
       <span class="eyebrow">ERP presents</span>
       <h1>Run Wild</h1>
       <p class="place">MELORANE</p>
-      <p class="when">Saturday 17 April 2027<span>·</span>21 km trail run &amp; 5 km run/walk</p>
+      <p class="when">${formatDay(ev.date)}<span>·</span>21 km trail run &amp; 5 km run/walk</p>
       <div class="btn-row">
         ${raceCta(s)}
         <a class="btn ghost" href="#/info">Race info</a>
@@ -143,7 +146,7 @@ async function home(el) {
   </section>
 
   <div class="wrap facts">
-    <div><span class="label">Date</span><strong>17 April 2027</strong></div>
+    <div><span class="label">Date</span><strong>${formatDate(ev.date)}</strong></div>
     <div><span class="label">Start</span><strong>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early morning'}</strong></div>
     <div><span class="label">Venue</span><strong>Melorane ERP Game Reserve</strong></div>
     <div><span class="label">Distances</span><strong>21 km · 5 km</strong></div>
@@ -203,7 +206,7 @@ async function home(el) {
     <div class="wrap split top">
       <div>
         <span class="eyebrow">Race day</span>
-        <h2>Saturday, 17 April 2027</h2>
+        <h2>${formatDay(ev.date)}</h2>
         <p>Race day is at Melorane ERP Game Reserve. Want to wake up at the start line? Stay at Canvas Lodge (minimum ${s.lodge.minNights} nights) – campfires, starry skies and the bush all around.</p>
         <div class="btn-row" style="margin-top:24px"><a class="btn light" href="#/lodge">Stay at Canvas Lodge</a></div>
       </div>
@@ -259,7 +262,7 @@ async function launch(el) {
   <section class="section">
     <div class="wrap split top">
       <div>
-        <div class="notice"><p><strong>This is the launch event, not the race.</strong> Registering here does not enter you for the 17 April 2027 race. ${s.registration.open ? 'Race entries are open now – <a href="#/register">register for the race</a>.' : opensText(s) + '.'}</p></div>
+        <div class="notice"><p><strong>This is the launch event, not the race.</strong> Registering here does not enter you for the ${formatDate(s.event.date)} race. ${s.registration.open ? 'Race entries are open now – <a href="#/register">register for the race</a>.' : opensText(s) + '.'}</p></div>
         <table class="summary"><tbody>${launchRows(L)}</tbody></table>
         <figure class="launch-map">
           <iframe title="Map of ${esc(L.venue)}" loading="lazy" src="https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&amp;layer=mapnik&amp;marker=${L.lat}%2C${L.lng}"></iframe>
@@ -309,7 +312,7 @@ async function launch(el) {
             ${launchRows(r.event)}
           </tbody></table>
           ${r.personalEmail ? '<p class="small muted">You registered with a personal email address. That is fine – if you have a work address, you are welcome to let us know.</p>' : ''}
-          <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the 17 April 2027 race open on ${formatDate(r.raceOpensOn)}. We will email you once the launch date is confirmed.</p></div>
+          <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the ${formatDate(r.raceDate)} race open on ${formatDate(r.raceOpensOn)}. We will email you once the launch date is confirmed.</p></div>
           <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
           <div class="btn-row"><a class="btn plain" href="#/">Back to home</a><a class="btn plain" href="#/info">Race info</a></div>
         </div></section>`;
@@ -607,7 +610,7 @@ async function info(el) {
   const qa = [
     ['When can I enter the race?', `${opensText(s)}. Until then race entries are closed. You can already <a href="#/launch">register for the launch event</a> – that is a separate event and does not enter you for the race.`],
     ['What is the launch event?', `${esc(s.launch.description)} It takes place at ${esc(s.launch.venue)} at ${esc(s.launch.time)}${s.launch.timeConfirmed ? '' : ' (provisional)'}; the date is ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'still to be confirmed'}. Anyone can <a href="#/launch">register</a>.`],
-    ['When and where is the race?', `Saturday 17 April 2027 at ${esc(ev.venue)}. ${startLine(ev)}. Plan to arrive early – the start is early in the morning.`],
+    ['When and where is the race?', `${formatDay(ev.date)} at ${esc(ev.venue)}. ${startLine(ev)}. Plan to arrive early – the start is early in the morning.`],
     ['Which distances are there?', '<strong>21 km trail run</strong> or <strong>5 km run/walk</strong>. You choose one when you register. Both distances use the same pool of places for your category.'],
     ['Where do we start and finish, and what is the route?', `${ev.routeConfirmed ? `Start: ${esc(ev.startLocation)}. Finish: ${esc(ev.finishLocation)}. ${esc(ev.routeDescription)}` : 'The start and finish locations and the running route are still being confirmed by the organisers. We will publish them here and on the route map as soon as they are final.'}`],
     ['How many places are there?', `Group employees and other participants share one pool of ${s.pools.combined.limit} places. Community members have ${s.pools.community.limit} places. Melorane employees have unlimited entries and do not use either pool. When a pool is full you can join its waitlist – no payment is taken for a waitlist place.`],
@@ -617,7 +620,7 @@ async function info(el) {
     ['Can I buy socks?', `Yes. RunWild running socks are an optional add-on when you register, or later from “My entry”. ${s.socks.confirmed && s.socks.price ? 'They cost ' + rand(s.socks.price) + ' a pair, paid separately from the entry fee.' : 'The price is still to be confirmed – you can order now and nothing is payable for socks until the price is set.'}`],
     ['What is an employee invitation code?', 'Group employees and Melorane employees get an invitation code from the organisers (usually through their employer). Entering it on the registration form confirms you are an employee straight away, so your place is allocated immediately. No code, or a code that does not work? You can still register – your entry waits for an organiser to verify your employment before a place is allocated, and nothing is payable until then. Codes only confirm employment; they do not give a discount.'],
     ['I need running shoes or kit. Can I get some?', `Community members and Melorane employees can ask for running shoes and kit when they register and give their sizes. ERP buys the items with donated money (budgeted at ${rand(s.donations.perRunner)} per runner for shoes, shorts, shirt, socks and a cap) and hands them out before race day. We cannot promise items, but we will do our best.`],
-    ['How do I get there?', `Community participants are picked up from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)} on 17 April 2027${ev.pickupAddressConfirmed && ev.pickupFullAddress ? ' (' + esc(ev.pickupFullAddress) + ')' : ''}. Everyone else arranges their own transport and must arrive at the reserve on time, or stays at Canvas Lodge (minimum ${s.lodge.minNights} nights).`],
+    ['How do I get there?', `Community participants are picked up from ${esc(ev.pickupPlace)} at ${esc(ev.pickupTime)} on ${formatDate(ev.date)}${ev.pickupAddressConfirmed && ev.pickupFullAddress ? ' (' + esc(ev.pickupFullAddress) + ')' : ''}. Everyone else arranges their own transport and must arrive at the reserve on time, or stays at Canvas Lodge (minimum ${s.lodge.minNights} nights).`],
     ['How long is my place held while I pay?', `An unpaid reservation is held for ${s.reservationHours} hours. After that the place is released. If someone is on the waitlist, the organisers contact them – nobody is charged or confirmed automatically.`],
     ['How do I pay?', `Online through the event’s payment provider${s.payments.providerConnected ? '' : ' (being set up)'}, or by EFT using your unique payment reference. An entry is confirmed only once the payment provider notifies us or ERP finance reconciles your EFT – a screenshot or proof of payment alone does not confirm it.`],
     ['I don’t have an email address. Can I still enter?', 'Yes. Community members can register with a mobile number only. You will get a reference number on screen – write it down. Organisers can also register you in person.'],
@@ -644,7 +647,7 @@ async function info(el) {
       <div class="card raised">
         <h3>Key details</h3>
         <table class="summary"><tbody>
-          <tr><th>Date</th><td>Saturday 17 April 2027</td></tr>
+          <tr><th>Date</th><td>${formatDay(ev.date)}</td></tr>
           <tr><th>Start</th><td>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early start – time to be confirmed'}</td></tr>
           <tr><th>Venue</th><td>${esc(ev.venue)}</td></tr>
           <tr><th>Distances</th><td>21 km trail · 5 km run/walk</td></tr>
@@ -721,8 +724,8 @@ export function confirmationHTML(r) {
       <tr><th>RunWild shirt</th><td>${r.shirtSize ? 'Size ' + esc(r.shirtSize) : '—'} – included with your entry</td></tr>
       ${r.socks ? `<tr><th>Socks</th><td>${r.socks.qty} pair${r.socks.qty > 1 ? 's' : ''}, size ${esc(r.socks.size)}${r.socksPrice ? '' : ' – price to be confirmed, nothing payable yet'}</td></tr>` : ''}
       ${r.kit && (r.kit.needsShoes || r.kit.needsKit) ? `<tr><th>Running kit requested</th><td>${[r.kit.needsShoes && 'Shoes (' + esc(r.kit.shoeSize + ' ' + r.kit.shoeSystem) + ')', r.kit.needsKit && 'Kit (shorts ' + esc(r.kit.shortsSize) + ')'].filter(Boolean).join(', ')}</td></tr>` : ''}
-      <tr><th>Race day</th><td>17 April 2027 · ${r.event.startTime ? esc(r.event.startTime) : 'Early start – exact time to be confirmed'}</td></tr>
-      ${r.category === 'community' ? `<tr><th>Pickup</th><td>${esc(r.event.pickupPlace)} at ${esc(r.event.pickupTime)} on 17 April 2027${r.event.pickupFullAddress ? ' – ' + esc(r.event.pickupFullAddress) : ''}</td></tr>` : `<tr><th>Getting there</th><td>${r.lodgeWanted ? 'Staying at Canvas Lodge (see below).' : 'Early start from Melorane ERP Game Reserve. You arrange your own transport and arrive on time.'}</td></tr>`}
+      <tr><th>Race day</th><td>${formatDate(r.event.date)} · ${r.event.startTime ? esc(r.event.startTime) : 'Early start – exact time to be confirmed'}</td></tr>
+      ${r.category === 'community' ? `<tr><th>Pickup</th><td>${esc(r.event.pickupPlace)} at ${esc(r.event.pickupTime)} on ${formatDate(r.event.date)}${r.event.pickupFullAddress ? ' – ' + esc(r.event.pickupFullAddress) : ''}</td></tr>` : `<tr><th>Getting there</th><td>${r.lodgeWanted ? 'Staying at Canvas Lodge (see below).' : 'Early start from Melorane ERP Game Reserve. You arrange your own transport and arrive on time.'}</td></tr>`}
       ${r.buddy ? `<tr><th>Run Buddy</th><td>${r.buddy.optIn ? statusPill(r.buddy.status || 'awaiting_match') : 'Not taking part'}</td></tr>` : ''}
       ${!entry && r.status !== 'waitlisted' && r.status !== 'draft' ? `<tr><th>Entry fee</th><td>${r.fee.confirmed ? rand(r.fee.amount) : '<span class="tbc">To be confirmed</span>'}</td></tr>` : ''}
     </tbody></table>
@@ -759,8 +762,8 @@ function renderMine(box, r, creds, reload) {
             <div class="notice bad form-error" hidden></div>
             <button class="btn small" type="submit">Volunteer</button></form></div></details>`}` : ''}
     ${canLodge ? `<h3>Add a Canvas Lodge stay</h3><form id="lf" class="row3" novalidate style="align-items:end">
-        <div class="field"><label>Arrive</label><input name="arrival" type="date" min="2027-04-01" max="2027-04-30" value="2027-04-15"></div>
-        <div class="field"><label>Depart</label><input name="departure" type="date" min="2027-04-01" max="2027-04-30" value="2027-04-17"></div>
+        <div class="field"><label>Arrive</label><input name="arrival" type="date" min="${addDays(r.event.date, -14)}" max="${addDays(r.event.date, 14)}" value="${addDays(r.event.date, -2)}"></div>
+        <div class="field"><label>Depart</label><input name="departure" type="date" min="${addDays(r.event.date, -14)}" max="${addDays(r.event.date, 14)}" value="${r.event.date}"></div>
         <div class="field"><button class="btn small" type="submit">Request stay</button></div>
         <p class="small muted" style="grid-column:1/-1;margin:0">Canvas Lodge bookings are for a minimum of ${r.lodgeMinNights} nights.</p>
         <div class="notice bad form-error" hidden style="grid-column:1/-1"></div></form>` : ''}
@@ -850,6 +853,7 @@ async function paymentReturn(el, [chargeRef]) {
 
 async function aboutPreview(el) {
   setTitle('About this preview');
+  if (LIVE) { el.innerHTML = `${pageHead('Run Wild Melorane', 'This is the live site')}<section class="section"><div class="wrap narrow"><p>Entries and registrations are saved securely by ERP.</p><a class="btn plain" href="#/">Home</a></div></section>`; return; }
   el.innerHTML = `${pageHead('Preview', 'About this preview')}
   <section class="section"><div class="wrap narrow">
     <p>This is a working proof of concept for Run Wild Melorane. Registration (with shirt sizes and a socks add-on), capacity limits, waitlists, reservation expiry, Canvas Lodge requests, water point sponsorship, monetary donations, Run Buddy matching and the organiser dashboard all work.</p>

@@ -1,14 +1,16 @@
-import { api, esc, $, $$, toast, statusPill, sampleBadge, rand, formatDate, formatDateTime, tbc } from './ui.js';
+import { api, LIVE, esc, $, $$, toast, statusPill, sampleBadge, rand, formatDate, formatDateTime, tbc, showErrors, clearErrors } from './ui.js';
 import { CATEGORIES, DISTANCES, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive } from './core.js';
-import { AuthError } from './backend.js';
+import { AuthError, ROLES } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
 
 const TABS = [
   ['overview', 'Overview'], ['launch', 'Launch event'], ['participants', 'Participants'], ['verify', 'Employee verification'], ['waitlist', 'Waitlist & cancelled'],
   ['payments', 'Payments'], ['shirts', 'Shirts & socks'], ['lodge', 'Canvas Lodge'], ['water', 'Water points'], ['donations', 'Donations & kit'],
   ['buddies', 'Run Buddy'], ['pickup', 'Pickup list'], ['messages', 'Messages'], ['audit', 'Audit trail'],
-  ['settings', 'Settings'], ['checklist', 'Launch checklist'], ['tests', 'Verification tests'],
+  ['settings', 'Settings'], ['users', 'Users'], ['checklist', 'Launch checklist'], ['tests', 'Verification tests'], ['account', 'My account'],
 ];
+// Tabs only admins see.
+const ADMIN_TABS = ['settings', 'users', 'checklist'];
 
 let token = null;
 let tab = 'overview';
@@ -23,19 +25,52 @@ export async function renderOrganiser(el, [t]) {
     if (e instanceof AuthError) { sessionStorage.removeItem('rw-org-token'); return loginView(el); }
     throw e;
   }
+  if (data.me.mustChangePassword) return forcedPasswordView(el, data);
+  if (ADMIN_TABS.includes(tab) && data.me.role !== 'admin') tab = 'overview';
   draw(el, data);
+}
+
+// A temporary password (new account or reset) must be replaced before anything else.
+function forcedPasswordView(el, D) {
+  el.innerHTML = `<section class="page-head"><div class="wrap"><span class="eyebrow">Private</span><h1>Choose your password</h1></div></section>
+  <section class="section"><div class="wrap" style="max-width:480px">
+    <p>Hi ${esc(D.me.name)}. You signed in with a temporary password. Choose your own password to continue.</p>
+    ${passwordForm()}
+  </div></section>`;
+  wirePasswordForm(el, () => { toast('Password changed'); refresh(); });
+}
+
+function passwordForm() {
+  return `<form class="card" id="pwf" novalidate>
+      <div class="notice bad form-error" hidden></div>
+      <div class="field" data-field="current"><label for="pw-cur">Current password</label><input id="pw-cur" name="current" type="password" autocomplete="current-password"></div>
+      <div class="field" data-field="next"><label for="pw-new">New password <span class="hint">At least 10 characters. A short sentence works well.</span></label><input id="pw-new" name="next" type="password" autocomplete="new-password"></div>
+      <div class="field" data-field="confirm"><label for="pw-rep">New password again</label><input id="pw-rep" name="confirm" type="password" autocomplete="new-password"></div>
+      <button class="btn navy" type="submit">Change password</button>
+    </form>`;
+}
+
+function wirePasswordForm(root, done) {
+  const f = $('#pwf', root);
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors(f);
+    const v = (n) => f.elements[n].value;
+    if (v('next') !== v('confirm')) return showErrors(f, { message: 'The new passwords do not match.', fields: { confirm: 'Does not match.' } });
+    try { await api.changePassword(token, v('current'), v('next')); done(); } catch (err) { showErrors(f, err); }
+  });
 }
 
 function loginView(el) {
   el.innerHTML = `<section class="page-head"><div class="wrap"><span class="eyebrow">Private</span><h1>Organiser sign-in</h1></div></section>
   <section class="section"><div class="wrap" style="max-width:440px">
     <form class="card" id="login" novalidate>
-      <div class="field"><label for="le">Email</label><input id="le" name="email" type="email" autocomplete="username"></div>
+      <div class="field"><label for="le">Email or username</label><input id="le" name="email" type="text" autocomplete="username" autocapitalize="none"></div>
       <div class="field"><label for="lp">Password</label><input id="lp" name="password" type="password" autocomplete="current-password"></div>
       <div class="notice bad" id="lerr" hidden></div>
       <button class="btn navy" type="submit">Sign in</button>
     </form>
-    <div class="notice warn" style="margin-top:16px"><p><strong>Preview sign-in:</strong> organiser@preview.local / runwild-preview. In this static preview the check runs in the browser. At launch, sign-in and every organiser permission are enforced by the server (see README).</p></div>
+    ${LIVE ? '<p class="small muted" style="margin-top:16px">Organiser accounts are created by an admin. Forgot your password? Ask an admin to reset it.</p>' : '<div class="notice warn" style="margin-top:16px"><p><strong>Preview sign-in:</strong> organiser@preview.local / runwild-preview. In this preview everything runs in your browser. On the live site, sign-in and permissions are enforced by the server.</p></div>'}
   </div></section>`;
   $('#login').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -57,7 +92,8 @@ function draw(el, D) {
   const attention = [...D.registrations, ...D.lodgeRequests, ...D.sponsorships].filter((r) => r.attention).length;
   el.innerHTML = `<div class="org-shell">
     <nav class="org-side" aria-label="Dashboard sections">
-      ${TABS.map(([k, v]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${v}${k === 'verify' && pending ? `<span class="count">${pending}</span>` : ''}${k === 'overview' && attention ? `<span class="count">${attention}</span>` : ''}</button>`).join('')}
+      <p class="small muted" style="margin:0 0 10px 12px">${esc(D.me.name)}<br>${esc(ROLES[D.me.role].label)}${LIVE ? '' : ' · preview'}</p>
+      ${TABS.filter(([k]) => D.me.role === 'admin' || !ADMIN_TABS.includes(k)).map(([k, v]) => `<button data-tab="${k}" class="${k === tab ? 'on' : ''}">${v}${k === 'verify' && pending ? `<span class="count">${pending}</span>` : ''}${k === 'overview' && attention ? `<span class="count">${attention}</span>` : ''}</button>`).join('')}
       <hr class="rule" style="margin:12px 0">
       <button id="signout">Sign out</button>
     </nav>
@@ -461,7 +497,7 @@ const VIEWS = {
     const rs = D.registrations.filter((r) => r.category === 'community' && ['confirmed', 'reserved'].includes(r.status) && (r.status === 'confirmed' || isReservationLive(r, D.now))).sort((a, b) => a.fullName.localeCompare(b.fullName));
     const ev = D.settings.event;
     m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Community pickup list</h2><div class="btn-row"><button class="btn small plain" onclick="window.print()">Print</button><button class="btn small" id="csv">CSV</button></div></div>
-      <p><strong>17 April 2027 · ${esc(ev.pickupTime)} · ${esc(ev.pickupPlace)}</strong> ${ev.pickupAddressConfirmed && ev.pickupFullAddress ? '· ' + esc(ev.pickupFullAddress) : tbc('Full address to be confirmed')}</p>
+      <p><strong>${formatDate(ev.date)} · ${esc(ev.pickupTime)} · ${esc(ev.pickupPlace)}</strong> ${ev.pickupAddressConfirmed && ev.pickupFullAddress ? '· ' + esc(ev.pickupFullAddress) : tbc('Full address to be confirmed')}</p>
       ${table(['#', 'Name', 'Ref', 'Mobile', 'Emergency contact', 'Distance', 'Status', 'On bus'], rs.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td class="ref">${esc(r.ref)}</td><td>${esc(r.mobile)}</td><td>${esc(r.emergencyName)} · ${esc(r.emergencyMobile)}</td><td>${r.distance === '5k' ? '5 km' : '21 km'}</td><td>${statusPill(r.status)}</td><td>☐</td></tr>`), 'No community participants yet.')}`;
     $('#csv').addEventListener('click', () => csvDownload('pickup-list', ['Name', 'Reference', 'Mobile', 'Emergency name', 'Emergency number', 'Distance', 'Status'], rs.map((r) => [r.fullName, r.ref, r.mobile, r.emergencyName, r.emergencyMobile, DISTANCES[r.distance], r.status])));
   },
@@ -481,6 +517,13 @@ const VIEWS = {
   },
 
   settings(m, D) { settingsView(m, D); },
+  users(m, D) { usersView(m, D); },
+  account(m, D) {
+    m.innerHTML = `<h2>My account</h2>
+      <table class="summary" style="max-width:520px"><tbody><tr><th>Name</th><td>${esc(D.me.name)}</td></tr><tr><th>Sign-in</th><td>${esc(D.me.email)}</td></tr><tr><th>Role</th><td>${esc(ROLES[D.me.role].label)} – ${esc(ROLES[D.me.role].note)}</td></tr></tbody></table>
+      <h3>Change password</h3><div style="max-width:480px">${passwordForm()}</div>`;
+    wirePasswordForm(m, () => { toast('Password changed'); m.querySelector('#pwf').reset(); });
+  },
   checklist(m, D) { checklistView(m, D); },
   tests(m) { testsView(m); },
 };
@@ -496,6 +539,7 @@ function settingsView(m, D) {
   <p class="muted">Every change is recorded in the audit trail. Items marked “confirmed” are shown to the public as final.</p>
   <form id="set" novalidate>
     <div class="card" style="margin-bottom:16px"><h3>Race day</h3>
+      <div class="row2"><div class="field"><label>Race date</label><input name="raceDate" type="date" value="${esc(S.event.date)}"></div><div class="field"><label>Venue</label><input name="raceVenue" type="text" value="${esc(S.event.venue)}"></div></div>
       <div class="row2"><div class="field"><label>Exact start time</label><input name="startTime" type="text" value="${esc(S.event.startTime)}" placeholder="e.g. 06:00"></div><div class="field" style="align-self:end">${chk('startTimeConfirmed', S.event.startTimeConfirmed, 'Start time confirmed – publish it')}</div></div>
       <div class="row2"><div class="field"><label>Pickup place</label><input name="pickupPlace" type="text" value="${esc(S.event.pickupPlace)}"></div><div class="field"><label>Pickup time</label><input name="pickupTime" type="text" value="${esc(S.event.pickupTime)}"></div></div>
       <div class="row2"><div class="field"><label>Full pickup address in PJ</label><input name="pickupFullAddress" type="text" value="${esc(S.event.pickupFullAddress)}"></div><div class="field" style="align-self:end">${chk('pickupAddressConfirmed', S.event.pickupAddressConfirmed, 'Address confirmed – publish it')}</div></div>
@@ -578,10 +622,22 @@ function settingsView(m, D) {
     <div class="notice bad" id="serr" hidden></div>
     <button class="btn" type="submit">Save settings</button>
   </form>
-  <hr class="rule"><h3>Preview data</h3><div class="btn-row"><button class="btn plain" id="reset">Reset to sample data</button><button class="btn plain" id="empty">Clear all data</button></div>`;
+  <hr class="rule"><h3>Backup</h3><p class="small muted">Download everything (entries, payments, settings, users without passwords, audit trail) as one JSON file. Keep it somewhere safe – it contains personal information.</p>
+  <div class="btn-row"><button class="btn plain" id="backup">Download backup</button></div>
+  ${LIVE ? '' : '<hr class="rule"><h3>Preview data</h3><div class="btn-row"><button class="btn plain" id="reset">Reset to sample data</button><button class="btn plain" id="empty">Clear all data</button></div>'}`;
+  $('#backup').addEventListener('click', async () => {
+    try {
+      const data = await api.exportData(token);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      a.download = 'runwild-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (e) { toast(e.message, true); }
+  });
   $$('[data-issue]', m).forEach((b) => b.addEventListener('click', () => act('issueFeeRequests', { category: b.dataset.issue }, 'Payment requests issued')));
-  $('#reset').addEventListener('click', async () => { if (confirm('Reset preview data? This signs you out.')) { await api.resetPreview({ withSamples: true }); sessionStorage.removeItem('rw-org-token'); refresh(); } });
-  $('#empty').addEventListener('click', async () => { if (confirm('Delete all records? This signs you out.')) { await api.resetPreview({ withSamples: false }); sessionStorage.removeItem('rw-org-token'); refresh(); } });
+  $('#reset', m)?.addEventListener('click', async () => { if (confirm('Reset preview data? This signs you out.')) { await api.resetPreview({ withSamples: true }); sessionStorage.removeItem('rw-org-token'); refresh(); } });
+  $('#empty', m)?.addEventListener('click', async () => { if (confirm('Delete all records? This signs you out.')) { await api.resetPreview({ withSamples: false }); sessionStorage.removeItem('rw-org-token'); refresh(); } });
   $('#set').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target.elements;
@@ -589,7 +645,7 @@ function settingsView(m, D) {
     const lines = (v) => v.split('\n').map((x) => x.trim()).filter(Boolean);
     const existingCodes = Object.fromEntries(S.inviteCodes.map((c) => [c.code, c.uses]));
     const patch = {
-      event: { startTime: f.startTime.value.trim(), startTimeConfirmed: f.startTimeConfirmed.checked && !!f.startTime.value.trim(), pickupPlace: f.pickupPlace.value.trim(), pickupTime: f.pickupTime.value.trim(), pickupFullAddress: f.pickupFullAddress.value.trim(), pickupAddressConfirmed: f.pickupAddressConfirmed.checked && !!f.pickupFullAddress.value.trim(), proceedsText: f.proceedsText.value.trim(),
+      event: { date: f.raceDate.value, venue: f.raceVenue.value.trim() || S.event.venue, startTime: f.startTime.value.trim(), startTimeConfirmed: f.startTimeConfirmed.checked && !!f.startTime.value.trim(), pickupPlace: f.pickupPlace.value.trim(), pickupTime: f.pickupTime.value.trim(), pickupFullAddress: f.pickupFullAddress.value.trim(), pickupAddressConfirmed: f.pickupAddressConfirmed.checked && !!f.pickupFullAddress.value.trim(), proceedsText: f.proceedsText.value.trim(),
         startLocation: f.startLocation.value.trim(), finishLocation: f.finishLocation.value.trim(), routeDescription: f.routeDescription.value.trim(), routeConfirmed: f.routeConfirmed.checked },
       registration: { opensOn: f.opensOn.value },
       launchEvent: { open: f.launchOpen.checked, date: f.launchDate.value, dateConfirmed: f.launchDateOk.checked && !!f.launchDate.value, time: f.launchTime.value.trim(), timeConfirmed: f.launchTimeOk.checked,
@@ -614,6 +670,41 @@ function settingsView(m, D) {
       inviteCodes: lines(f.codes.value).map((l) => { const [code, category, max] = l.split(',').map((x) => x.trim()); const unlimited = !max || /^unlimited$/i.test(max); return { code: code.toUpperCase(), category, maxUses: unlimited ? null : parseInt(max, 10) || 100, uses: existingCodes[code.toUpperCase()] || 0 }; }).filter((c) => CATEGORIES[c.category] && CATEGORIES[c.category].employee),
     };
     try { await api.updateSettings(token, patch); toast('Settings saved'); refresh(); } catch (err) { $('#serr').hidden = false; $('#serr').textContent = err.message; }
+  });
+}
+
+// ---------- users ----------
+
+function usersView(m, D) {
+  const roleOpts = (sel) => Object.entries(ROLES).map(([k, r]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(r.label)}</option>`).join('');
+  m.innerHTML = `<h2>Users</h2>
+    <p class="muted">Everyone who signs in to this dashboard. ${Object.entries(ROLES).map(([, r]) => `<strong>${esc(r.label)}</strong>: ${esc(r.note.toLowerCase())}`).join(' · ')}.</p>
+    ${table(['Name', 'Sign-in', 'Role', 'Status', 'Last sign-in', ''], D.users.map((u) => `<tr>
+      <td>${esc(u.name)}${u.email === D.me.email ? ' <span class="small muted">(you)</span>' : ''}</td><td>${esc(u.email)}</td>
+      <td><select data-role="${u.id}" style="min-height:34px;padding:4px" ${u.email === D.me.email ? 'disabled' : ''}>${roleOpts(u.role)}</select></td>
+      <td>${u.active ? statusPill('confirmed', 'Active') : statusPill('cancelled', 'Deactivated')}${u.mustChangePassword ? '<br><span class="small muted">temporary password</span>' : ''}${u.locked ? '<br><span class="attention">locked after failed sign-ins</span>' : ''}</td>
+      <td>${u.lastLoginAt ? formatDateTime(u.lastLoginAt) : '—'}</td>
+      <td><div class="btn-row">${u.email === D.me.email ? '' : `<button class="btn small plain" data-reset="${u.id}">Reset password</button>${u.locked ? `<button class="btn small plain" data-unlock="${u.id}">Unlock</button>` : ''}<button class="btn small ${u.active ? 'danger' : ''}" data-active="${u.id}|${u.active ? 0 : 1}">${u.active ? 'Deactivate' : 'Reactivate'}</button>`}</div></td></tr>`))}
+    <h3>Add a user</h3>
+    <form id="nu" class="card" novalidate style="max-width:640px">
+      <div class="notice bad form-error" hidden></div>
+      <div class="row2"><div class="field" data-field="name"><label>Name</label><input name="name" type="text"></div>
+        <div class="field" data-field="email"><label>Email or username <span class="hint">What they sign in with</span></label><input name="email" type="text" autocapitalize="none"></div></div>
+      <div class="row2"><div class="field" data-field="role"><label>Role</label><select name="role">${roleOpts('organiser')}</select></div>
+        <div class="field" data-field="password"><label>Temporary password <span class="hint">At least 10 characters. They choose their own at first sign-in.</span></label><input name="password" type="text" autocomplete="off"></div></div>
+      <button class="btn small" type="submit">Create user</button>
+    </form>
+    <p class="small muted">Give the temporary password to the person privately (not in a group chat). Deactivating someone signs them out immediately.</p>`;
+  const save = async (id, patch, msg) => { try { await api.updateUser(token, id, patch); toast(msg); refresh(); } catch (e) { toast(e.message, true); refresh(); } };
+  $$('[data-role]', m).forEach((sel) => sel.addEventListener('change', () => save(sel.dataset.role, { role: sel.value }, 'Role changed')));
+  $$('[data-active]', m).forEach((b) => b.addEventListener('click', () => { const [id, on] = b.dataset.active.split('|'); if (on === '1' || confirm('Deactivate this user? They are signed out straight away.')) save(id, { active: on === '1' }, on === '1' ? 'Reactivated' : 'Deactivated'); }));
+  $$('[data-unlock]', m).forEach((b) => b.addEventListener('click', () => save(b.dataset.unlock, { unlock: true }, 'Unlocked')));
+  $$('[data-reset]', m).forEach((b) => b.addEventListener('click', () => { const pw = prompt('New temporary password (at least 10 characters). They must change it when they sign in.'); if (pw) save(b.dataset.reset, { password: pw }, 'Password reset'); }));
+  const f = $('#nu', m);
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors(f);
+    try { await api.createUser(token, { name: f.elements.name.value, email: f.elements.email.value, role: f.elements.role.value, password: f.elements.password.value }); toast('User created'); refresh(); } catch (err) { showErrors(f, err); }
   });
 }
 
@@ -644,7 +735,8 @@ function checklistView(m, D) {
     ['Full pickup address in PJ', S.event.pickupAddressConfirmed],
     ['Run Buddy training resources approved', S.buddy.resourcesApproved],
     ['Email and SMS providers connected', S.messaging.emailConnected && S.messaging.smsConnected],
-    ['Real organiser accounts created; preview account removed', !S.organisers.some((o) => o.email === 'organiser@preview.local')],
+    ['Each organiser has their own account (Users)', D.users.filter((u) => u.active).length > 1],
+    ['Site connected to the live database (js/config.js)', LIVE],
     ['Production backend deployed (server-side capacity and permissions – see README)', false],
     ['Sample data removed', !D.registrations.some((r) => r.sample)],
   ];

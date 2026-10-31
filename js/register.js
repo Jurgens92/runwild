@@ -1,5 +1,5 @@
 import { api, esc, $, $$, pageHead, showErrors, rand, formatDate, tbc } from './ui.js';
-import { CATEGORIES, DISTANCES, SHIRT_SIZES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, validEmail, validMobile } from './core.js';
+import { formatDay, CATEGORIES, DISTANCES, SHIRT_SIZES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, validEmail, validMobile } from './core.js';
 import { confirmationHTML } from './app.js';
 
 const TRANSPORT_ACK = 'The event will have an early start from Melorane ERP Game Reserve. I am responsible for arranging my transport and arriving on time.';
@@ -29,7 +29,7 @@ export async function renderRegister(el) {
   if (!s.registration.open && !token) {
     el.innerHTML = `<section class="page-head"><div class="wrap narrow">
         <span class="eyebrow">Entries</span><h1>Race entries open ${formatDate(s.registration.opensOn)}</h1>
-        <div class="reg-meta"><span>Saturday 17 April 2027</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
+        <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
       </div></section>
       <section class="section tight"><div class="wrap narrow">
         <div class="card">
@@ -51,7 +51,7 @@ export async function renderRegister(el) {
 
   el.innerHTML = `<section class="page-head"><div class="wrap narrow">
       <span class="eyebrow">Entries</span><h1>Register</h1>
-      <div class="reg-meta"><span>Saturday 17 April 2027</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
+      <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
     </div></section>
     <section class="section tight"><div class="wrap narrow">
       ${token ? '<div class="notice sun"><p><strong>Organiser-assisted registration.</strong> You are signed in as an organiser, so this entry will be recorded as registered on someone’s behalf.</p></div>' : ''}
@@ -157,7 +157,7 @@ export async function renderRegister(el) {
     () => {
       if (d.category === 'community') {
         return `<h2>Getting there and your kit</h2>
-        <div class="notice sun"><p><strong>On 17 April 2027, community participants will be picked up from ${esc(s.event.pickupPlace)} at ${esc(s.event.pickupTime)}.</strong>${s.event.pickupAddressConfirmed && s.event.pickupFullAddress ? ' ' + esc(s.event.pickupFullAddress) : ''}</p></div>
+        <div class="notice sun"><p><strong>On ${formatDate(s.event.date)}, community participants will be picked up from ${esc(s.event.pickupPlace)} at ${esc(s.event.pickupTime)}.</strong>${s.event.pickupAddressConfirmed && s.event.pickupFullAddress ? ' ' + esc(s.event.pickupFullAddress) : ''}</p></div>
         <div class="field" data-field="pickupAck"><label class="check"><input type="checkbox" name="pickupAck" ${d.pickupAck ? 'checked' : ''}> I understand the pickup arrangements and will be at ${esc(s.event.pickupPlace)} by ${esc(s.event.pickupTime)}.</label></div>
         ${kitBlock(true)}
         <fieldset style="margin-top:24px"><span class="legend">Would you like support from a Community Run Buddy?</span>
@@ -171,7 +171,7 @@ export async function renderRegister(el) {
       }
       if (d.category === 'melorane_employee') {
         return `<h2>Running kit and socks</h2>
-          <p>Melorane employees have unlimited entries, in addition to the limited places, so you do not use a group or community place. Race day is 17 April 2027 with an early start – exact time to be confirmed.</p>
+          <p>Melorane employees have unlimited entries, in addition to the limited places, so you do not use a group or community place. Race day is ${formatDate(s.event.date)} with an early start – exact time to be confirmed.</p>
           ${kitBlock(false)}
           ${socksBlock()}
           ${feeNote()}`;

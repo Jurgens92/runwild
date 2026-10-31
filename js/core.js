@@ -59,6 +59,14 @@ export function formatDate(iso) {
   return new Intl.DateTimeFormat('en-ZA', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' }).format(dt);
 }
 
+// "Saturday 17 April 2027"
+export function formatDay(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  return new Intl.DateTimeFormat('en-ZA', { timeZone: 'UTC', weekday: 'long' }).format(dt) + ' ' + formatDate(iso);
+}
+
 export function formatDateTime(ts) {
   if (!ts) return '—';
   return new Intl.DateTimeFormat('en-ZA', {

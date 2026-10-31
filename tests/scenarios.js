@@ -1,7 +1,7 @@
 // Acceptance scenarios from the brief. Browser-safe (no Node imports) so organisers can run them
 // from the dashboard; tests/run.mjs runs the same list from the command line.
 
-import { Backend, memoryStorage, inProcessLock, AuthError } from '../js/backend.js';
+import { Backend, memoryStorage, inProcessLock, AuthError, ValidationError, hashPassword, SCHEMA_VERSION } from '../js/backend.js';
 import { lodgeQuote, poolUsage } from '../js/core.js';
 
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
@@ -334,6 +334,106 @@ export const scenarios = [
       eq(await be._read((s) => s.registrations.length), 0, 'launch registration is not a race entry');
       const pub = JSON.stringify(await be.publicSummary());
       assert(!pub.includes('thandi@acme.co.za'), 'launch registrations are not public');
+    },
+  },
+  {
+    name: 'User accounts: admins create users; roles limit what each person can do',
+    async run() {
+      const { be } = await setup();
+      const admin = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      let weak = null;
+      try { await be.createUser(admin, { email: 'thabo@erp.ngo', name: 'Thabo', role: 'organiser', password: 'short' }); } catch (e) { weak = e; }
+      assert(weak && weak.fields.password, 'short passwords refused');
+      await be.createUser(admin, { email: 'thabo@erp.ngo', name: 'Thabo', role: 'organiser', password: 'temporary-pass-1' });
+      await be.createUser(admin, { email: 'viewer@erp.ngo', name: 'Vee', role: 'viewer', password: 'temporary-pass-2' });
+      const dash = await be.dashboard(admin);
+      assert(!JSON.stringify(dash).includes('"hash"') && !JSON.stringify(dash).includes('"salt"'), 'password hashes never leave the server');
+      // New users must choose their own password first.
+      const t1 = await be.login('THABO@erp.ngo', 'temporary-pass-1');
+      eq(t1.mustChangePassword, true, 'temporary password must be changed');
+      let blocked = null;
+      try { await be.organiserAction(t1.token, 'issueSockCharges'); } catch (e) { blocked = e; }
+      assert(blocked && /new password/.test(blocked.message), 'nothing else allowed until the password is changed');
+      await be.changePassword(t1.token, 'temporary-pass-1', 'thabos-own-password');
+      // Organisers can manage entries but not settings or users.
+      let noSettings = null;
+      try { await be.updateSettings(t1.token, { pools: { combined: { limit: 99 } } }); } catch (e) { noSettings = e; }
+      assert(noSettings instanceof ValidationError && /cannot do this/.test(noSettings.message), 'organisers cannot change settings');
+      let noUsers = null;
+      try { await be.createUser(t1.token, { email: 'x@y.z', name: 'X', role: 'admin', password: 'another-password' }); } catch (e) { noUsers = e; }
+      assert(noUsers, 'organisers cannot create users');
+      eq((await be.dashboard(t1.token)).users.length, 0, 'organisers do not see the user list');
+      // Viewers can only look.
+      const v = await be.login('viewer@erp.ngo', 'temporary-pass-2');
+      await be.changePassword(v.token, 'temporary-pass-2', 'viewers-own-password');
+      let noAct = null;
+      try { await be.organiserAction(v.token, 'issueSockCharges'); } catch (e) { noAct = e; }
+      assert(noAct && /Viewer/.test(noAct.message), 'viewers cannot take actions');
+      // Admins change the race and launch dates.
+      await be.updateSettings(admin, { event: { date: '2027-05-01' }, launchEvent: { date: '2027-01-20', dateConfirmed: true } });
+      const pub = await be.publicSummary();
+      eq(pub.event.date, '2027-05-01', 'race date changed'); eq(pub.launch.date, '2027-01-20', 'launch date changed');
+      let order = null;
+      try { await be.updateSettings(admin, { registration: { opensOn: '2027-06-01' } }); } catch (e) { order = e; }
+      assert(order, 'entries cannot open after race day');
+      // Deactivating someone ends their session.
+      const thaboId = (await be.dashboard(admin)).users.find((u) => u.email === 'thabo@erp.ngo').id;
+      await be.updateUser(admin, thaboId, { active: false });
+      let gone = null;
+      try { await be.dashboard(t1.token); } catch (e) { gone = e; }
+      assert(gone instanceof AuthError, 'deactivated user is signed out');
+      // The last admin cannot be removed.
+      const adminId = (await be.dashboard(admin)).users.find((u) => u.role === 'admin').id;
+      let last = null;
+      try { await be.updateUser(admin, adminId, { role: 'viewer' }); } catch (e) { last = e; }
+      assert(last && /at least one active admin/.test(last.message), 'last admin protected');
+    },
+  },
+  {
+    name: 'Five wrong passwords lock the account for 15 minutes',
+    async run() {
+      const { be, clock } = await setup();
+      for (let i = 0; i < 5; i++) { try { await be.login('organiser@preview.local', 'wrong-' + i); } catch { /* expected */ } }
+      let locked = null;
+      try { await be.login('organiser@preview.local', 'runwild-preview'); } catch (e) { locked = e; }
+      assert(locked && /locked/.test(locked.message), 'locked even with the right password');
+      clock.t += 16 * 60000;
+      assert((await be.login('organiser@preview.local', 'runwild-preview')).token, 'unlocked after 15 minutes');
+    },
+  },
+  {
+    name: 'Live database: starts empty with only the bootstrap admin, and an upgrade never wipes data',
+    async run() {
+      const salt = 'test-salt';
+      const admin = { id: 'boot', email: 'admin', name: 'Administrator', role: 'admin', salt, iterations: 100000, hash: await hashPassword('first-password!', salt), active: true, mustChangePassword: true, createdAt: 0, lastLoginAt: null };
+      const storage = memoryStorage();
+      const clock = { t: Date.UTC(2026, 9, 23, 8) };
+      const be = new Backend({ storage, now: () => clock.t, lock: inProcessLock(), mode: 'live', bootstrapUsers: [admin] });
+      const pub = await be.publicSummary();
+      eq(pub.payments.previewProvider, false, 'no preview payment page on a live site');
+      let noPreview = false;
+      try { await be.login('organiser@preview.local', 'runwild-preview'); } catch { noPreview = true; }
+      assert(noPreview, 'preview account does not exist on a live site');
+      const t = (await be.login('admin', 'first-password!')).token;
+      await be.changePassword(t, 'first-password!', 'a-much-better-password');
+      await be.submitLaunchRegistration({ firstName: 'Keep', surname: 'Me', email: 'keep@acme.co.za' });
+      eq((await be.dashboard(t)).registrations.length, 0, 'no sample data on a live site');
+      let noSign = false;
+      try { await be.previewSignNotification({ eventId: 'x', chargeRef: 'y', amount: 1, status: 'paid' }); } catch { noSign = true; }
+      assert(noSign, 'live site never signs payment notifications for the browser');
+      let noReset = false;
+      try { await be.resetPreview(); } catch { noReset = true; }
+      assert(noReset, 'live site cannot be reset');
+      // Simulate data written by an older version of the site.
+      const old = JSON.parse(storage.read());
+      old.version = SCHEMA_VERSION - 1;
+      delete old.settings.socks;
+      delete old.stock;
+      storage.write(old);
+      const d = await be.dashboard(t);
+      eq(d.launchRegistrations.length, 1, 'existing data kept after upgrade');
+      assert(d.settings.socks && Array.isArray(d.stock), 'new settings and collections filled in');
+      assert(d.audit.some((a) => a.action === 'database.upgraded'), 'upgrade recorded');
     },
   },
   {

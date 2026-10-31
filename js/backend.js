@@ -1,18 +1,30 @@
-// Preview backend. It runs in the browser so the POC can be hosted for free on GitHub Pages,
-// but it is written like a server: every write runs inside an exclusive lock that re-reads
-// state, applies the change and saves it, so the "check capacity then reserve" step is atomic.
-// In browsers the lock is the Web Locks API, which also serialises writes across open tabs.
-// The production equivalent (Postgres row locks + row-level security) is in supabase/schema.sql.
+// The backend. All business rules live here, written like a server: every write runs inside an
+// exclusive lock that re-reads state, applies the change and saves it, so "check capacity, then
+// reserve" can never interleave with another request.
+//
+// It runs in two places with the same code:
+//   * Preview (GitHub Pages, no API configured): in the browser, state in localStorage, lock = Web Locks.
+//   * Live: on the server (Supabase Edge Function, supabase/functions/api). State is one row in
+//     Postgres, and the lock is that row's lock (SELECT ... FOR UPDATE), held for the whole request.
 
 import {
   CATEGORIES, DISTANCES, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
   normaliseMobile, validMobile, validEmail, nightsBetween, stayNights, lodgeQuote, lodgeBalanceDue, todayJHB,
   formatDate, codeHasUses, SHIRT_SIZES, SOCK_SIZES, registrationOpen, isPersonalEmail, emailDomain,
 } from './core.js';
-import { defaultSettings, sampleData } from './defaults.js';
+import { defaultSettings, sampleData, PREVIEW_USERS, liveSettings } from './defaults.js';
 
-const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 const HOUR = 3600000;
+
+export const ROLES = {
+  admin: { rank: 3, label: 'Admin', note: 'Everything, including settings and user accounts' },
+  organiser: { rank: 2, label: 'Organiser', note: 'View and manage entries, payments, lodge, kit and buddies' },
+  viewer: { rank: 1, label: 'Viewer', note: 'Read-only access to the dashboard' },
+};
+const MIN_PASSWORD = 10;
+const MAX_FAILED_LOGINS = 5;
+const LOCK_MINUTES = 15;
 
 export class ValidationError extends Error {
   constructor(message, fields = {}) { super(message); this.name = 'ValidationError'; this.fields = fields; }
@@ -21,15 +33,16 @@ export class AuthError extends Error {
   constructor(message = 'Organiser sign-in required.') { super(message); this.name = 'AuthError'; }
 }
 
+// Storage adapters take and return the state object; each keeps its own serialised copy.
 export function memoryStorage() {
   let raw = null;
-  return { read: () => raw, write: (s) => { raw = s; } };
+  return { read: () => raw, write: (st) => { raw = JSON.stringify(st); } };
 }
 
 export function localStorageAdapter(key = 'runwild-preview-v' + SCHEMA_VERSION) {
   return {
     read: () => { try { return localStorage.getItem(key); } catch { return null; } },
-    write: (s) => { try { localStorage.setItem(key, s); } catch (e) { console.warn('Could not save preview data', e); } },
+    write: (st) => { try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) { console.warn('Could not save preview data', e); } },
   };
 }
 
@@ -52,68 +65,123 @@ export function defaultLock() {
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const enc = new TextEncoder();
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 async function hmac(secret, message) {
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
-  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return hex(await crypto.subtle.sign('HMAC', key, enc.encode(message)));
 }
 
-// Stands in for the payment provider's webhook signing secret, which in production lives only
-// on the server. In the preview it is visible in the browser and offers no real protection.
+// Passwords are stored only as salted PBKDF2-SHA256 hashes.
+export async function hashPassword(password, salt, iterations = 100000) {
+  const key = await crypto.subtle.importKey('raw', enc.encode(String(password)), 'PBKDF2', false, ['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(salt), iterations }, key, 256));
+}
+
+export function newSalt() {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return hex(b.buffer);
+}
+
+function sameText(a, b) {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+async function verifyPassword(password, user) {
+  return sameText(await hashPassword(password, user.salt, user.iterations), user.hash);
+}
+
+function passwordProblem(pw) {
+  if (typeof pw !== 'string' || pw.length < MIN_PASSWORD) return 'Use at least ' + MIN_PASSWORD + ' characters.';
+  if (/^(.)\1+$/.test(pw)) return 'Choose a less predictable password.';
+  return null;
+}
+
+// Stands in for the payment provider's webhook signing secret. In the preview it is visible in the
+// browser and offers no real protection; a live server passes its own secret and never exposes signing.
 const PREVIEW_PROVIDER_SECRET = 'preview-only-not-secret';
 
 export class Backend {
-  constructor({ storage = memoryStorage(), now = () => Date.now(), lock = defaultLock(), seed = true } = {}) {
+  // mode: 'preview' (browser) or 'live' (server). bootstrapUsers: the accounts a brand-new live database starts with.
+  constructor({ storage = memoryStorage(), now = () => Date.now(), lock = defaultLock(), seed = true, mode = 'preview', bootstrapUsers = null, providerSecret = PREVIEW_PROVIDER_SECRET } = {}) {
     this.storage = storage;
     this.now = now;
     this.lock = lock;
-    this.seed = seed;
-    this.sessions = new Map();
+    this.mode = mode;
+    this.seed = mode === 'live' ? false : seed;
+    this.bootstrapUsers = bootstrapUsers;
+    this.providerSecret = providerSecret;
   }
+
+  get live() { return this.mode === 'live'; }
 
   // ---------- state handling ----------
 
-  _fresh() {
-    const settings = defaultSettings();
-    const base = {
-      version: SCHEMA_VERSION, createdAt: this.now(), settings,
+  _empty() {
+    return {
+      version: SCHEMA_VERSION, createdAt: this.now(), settings: defaultSettings(), users: [],
       registrations: [], charges: [], payments: [], providerEvents: [], lodgeRequests: [], sponsorships: [],
       stock: [], matches: [], contributions: [], launchRegistrations: [], outbox: [], audit: [], sessions: [],
     };
-    if (this.seed) Object.assign(base, sampleData(this.now(), settings));
-    base.audit.push({ id: uid(), at: this.now(), actor: 'system', action: 'preview.created', target: '', details: this.seed ? 'Preview created with sample data' : 'Empty preview created' });
+  }
+
+  _fresh() {
+    const base = this._empty();
+    if (this.live) liveSettings(base.settings);
+    base.users = clone(this.bootstrapUsers || (this.live ? [] : PREVIEW_USERS));
+    if (this.seed) Object.assign(base, sampleData(this.now(), base.settings));
+    const what = this.live ? 'Live database created' : this.seed ? 'Preview created with sample data' : 'Empty preview created';
+    base.audit.push({ id: uid(), at: this.now(), actor: 'system', action: this.live ? 'database.created' : 'preview.created', target: '', details: what });
     return base;
   }
 
-  _load() {
-    const raw = this.storage.read();
-    if (raw) {
-      try {
-        const s = JSON.parse(raw);
-        if (s.version === SCHEMA_VERSION) return s;
-      } catch { /* fall through to a fresh state */ }
+  // Brings stored state up to date. A preview simply starts again; a live database is never wiped:
+  // new collections are added, and settings gain any new defaults while keeping every saved value.
+  _upgrade(st) {
+    if (!st || typeof st !== 'object' || !st.version) return { st: null, dirty: true };
+    let dirty = false;
+    if (st.version !== SCHEMA_VERSION) {
+      if (!this.live) return { st: null, dirty: true };
+      if (st.version > SCHEMA_VERSION) throw new Error('The database was written by a newer version of the site. Deploy the latest backend.');
+      const base = this._empty();
+      for (const k of Object.keys(base)) if (st[k] === undefined) st[k] = base[k];
+      st.audit.push({ id: uid(), at: this.now(), actor: 'system', action: 'database.upgraded', target: '', details: 'Version ' + st.version + ' → ' + SCHEMA_VERSION });
+      st.version = SCHEMA_VERSION;
+      dirty = true;
     }
-    return this._fresh();
+    st.settings = deepMerge(defaultSettings(), st.settings || {});
+    return { st, dirty };
   }
 
-  _save(state) { this.storage.write(JSON.stringify(state)); }
+  async _load() {
+    const raw = await this.storage.read();
+    let st = null;
+    try { st = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { st = null; }
+    const up = this._upgrade(st);
+    return up.st ? up : { st: this._fresh(), dirty: true };
+  }
+
+  async _save(state) { await this.storage.write(state); }
 
   async _read(fn) {
     return this.lock(async () => {
-      const s = this._load();
-      this._sweep(s);
-      this._save(s);
-      return fn(s);
+      const { st, dirty } = await this._load();
+      const swept = this._sweep(st);
+      if (dirty || swept) await this._save(st);
+      return fn(st);
     });
   }
 
   async _write(fn) {
     return this.lock(async () => {
-      const s = this._load();
-      this._sweep(s);
-      const result = await fn(s);
-      this._save(s);
+      const { st } = await this._load();
+      this._sweep(st);
+      const result = await fn(st);
+      await this._save(st);
       return result;
     });
   }
@@ -125,6 +193,7 @@ export class Backend {
   // Releases expired holds. Never promotes anyone from the waitlist.
   _sweep(s) {
     const now = this.now();
+    const before = s.audit.length;
     for (const r of s.registrations) {
       if (r.status === 'reserved' && r.expiresAt && r.expiresAt <= now) {
         r.status = 'cancelled';
@@ -145,6 +214,8 @@ export class Backend {
         this._audit(s, 'system', 'sponsorship.expired', sp.ref, 'Water Point ' + sp.point + ' hold expired');
       }
     }
+    s.sessions = (s.sessions || []).filter((x) => x.expiresAt > now);
+    return s.audit.length !== before;
   }
 
   _uniqueRef(s, prefix) {
@@ -322,7 +393,7 @@ export class Backend {
 
   async submitRegistration(input, { token } = {}) {
     return this._write((s) => {
-      const organiser = token ? this._requireOrganiser(s, token) : null;
+      const organiser = token ? this._session(s, token, 'organiser') : null;
       if (input.clientRequestId) {
         const existing = s.registrations.find((r) => r.clientRequestId === input.clientRequestId);
         if (existing) return { ...this._confirmation(s, existing), duplicateSubmission: true };
@@ -645,13 +716,14 @@ export class Backend {
 
   // Simulates the provider's server signing its notification. Only used by the preview checkout.
   async previewSignNotification(n) {
-    return hmac(PREVIEW_PROVIDER_SECRET, [n.eventId, n.chargeRef, n.amount, n.status].join('|'));
+    if (this.live) throw new ValidationError('Not available.');
+    return hmac(this.providerSecret, [n.eventId, n.chargeRef, n.amount, n.status].join('|'));
   }
 
   // Payment notification endpoint (the provider's webhook). The only online path that marks money
   // as received. A browser redirect never does.
   async providerNotification(n) {
-    const expected = await hmac(PREVIEW_PROVIDER_SECRET, [n.eventId, n.chargeRef, n.amount, n.status].join('|'));
+    const expected = await hmac(this.providerSecret, [n.eventId, n.chargeRef, n.amount, n.status].join('|'));
     return this._write((s) => {
       if (n.signature !== expected) {
         this._audit(s, 'provider', 'payment.rejected', n.chargeRef, 'Invalid signature');
@@ -835,40 +907,157 @@ export class Backend {
   }
 
   _launchView(s, lr) {
-    return { ref: lr.ref, firstName: lr.firstName, surname: lr.surname, email: lr.email, personalEmail: lr.personalEmail, status: lr.status, event: clone(s.settings.launchEvent), raceOpensOn: s.settings.registration.opensOn };
+    return { ref: lr.ref, firstName: lr.firstName, surname: lr.surname, email: lr.email, personalEmail: lr.personalEmail, status: lr.status, event: clone(s.settings.launchEvent), raceOpensOn: s.settings.registration.opensOn, raceDate: s.settings.event.date };
   }
 
   // ---------- organiser ----------
 
-  _requireOrganiser(s, token) {
+  // Resolves a session token to its (active) user and checks the role. Permission problems are
+  // ValidationErrors so the dashboard shows a message instead of signing the person out.
+  _session(s, token, minRole = 'viewer', { allowMustChange = false } = {}) {
     const sess = (s.sessions || []).find((x) => x.token === token && x.expiresAt > this.now());
-    if (!sess) throw new AuthError();
-    return sess;
+    const user = sess && (s.users || []).find((u) => u.id === sess.userId && u.active);
+    if (!user) throw new AuthError();
+    if (user.mustChangePassword && !allowMustChange) throw new ValidationError('Please set a new password first.');
+    if (ROLES[user.role].rank < ROLES[minRole].rank) throw new ValidationError('Your account (' + ROLES[user.role].label + ') cannot do this. Ask an admin.');
+    return { token, userId: user.id, email: user.email, name: user.name, role: user.role, mustChangePassword: !!user.mustChangePassword };
+  }
+
+  _publicUser(u) {
+    return { id: u.id, email: u.email, name: u.name, role: u.role, active: u.active, mustChangePassword: !!u.mustChangePassword, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt, locked: !!(u.lockedUntil && u.lockedUntil > this.now()) };
   }
 
   async login(email, password) {
-    return this._write((s) => {
-      const o = s.settings.organisers.find((x) => x.email.toLowerCase() === String(email || '').trim().toLowerCase() && x.password === password);
-      if (!o) { this._audit(s, String(email || ''), 'auth.failed', ''); throw new AuthError('Email or password not recognised.'); }
-      const token = uid();
-      s.sessions = (s.sessions || []).filter((x) => x.expiresAt > this.now());
-      s.sessions.push({ token, email: o.email, name: o.name, expiresAt: this.now() + 8 * HOUR });
-      this._audit(s, o.email, 'auth.signed_in', '');
-      return { token, email: o.email, name: o.name };
+    const res = await this._write(async (s) => {
+      const id = String(email || '').trim().toLowerCase();
+      const u = (s.users || []).find((x) => x.email.toLowerCase() === id);
+      const now = this.now();
+      if (u && u.lockedUntil && u.lockedUntil > now) {
+        this._audit(s, id, 'auth.locked', '');
+        return { error: 'Too many failed attempts. This account is locked for ' + LOCK_MINUTES + ' minutes.' };
+      }
+      // Hash even for unknown names, so the response time does not reveal which accounts exist.
+      const ok = u ? u.active && await verifyPassword(password, u) : (await hashPassword(String(password), 'unknown-user', 100000), false);
+      if (!ok) {
+        if (u) {
+          u.failedLogins = (u.failedLogins || 0) + 1;
+          if (u.failedLogins >= MAX_FAILED_LOGINS) { u.lockedUntil = now + LOCK_MINUTES * 60000; u.failedLogins = 0; }
+        }
+        this._audit(s, id, 'auth.failed', '');
+        return { error: 'Email or password not recognised.' };
+      }
+      u.failedLogins = 0; u.lockedUntil = null; u.lastLoginAt = now;
+      const token = uid() + uid();
+      s.sessions = (s.sessions || []).filter((x) => x.expiresAt > now);
+      s.sessions.push({ token, userId: u.id, expiresAt: now + 8 * HOUR });
+      this._audit(s, u.email, 'auth.signed_in', '');
+      return { token, email: u.email, name: u.name, role: u.role, mustChangePassword: !!u.mustChangePassword };
     });
+    if (res.error) throw new AuthError(res.error);
+    return res;
   }
 
   async logout(token) {
     return this._write((s) => { s.sessions = (s.sessions || []).filter((x) => x.token !== token); });
   }
 
-  async dashboard(token) {
+  async changePassword(token, current, next) {
+    return this._write(async (s) => {
+      const me = this._session(s, token, 'viewer', { allowMustChange: true });
+      const u = s.users.find((x) => x.id === me.userId);
+      if (!await verifyPassword(current, u)) throw new ValidationError('Your current password is not right.', { current: 'Not right.' });
+      const problem = passwordProblem(next);
+      if (problem) throw new ValidationError(problem, { next: problem });
+      if (next === current) throw new ValidationError('Choose a password you have not used here before.', { next: 'Same as before.' });
+      await this._setPassword(u, next, false);
+      // Sign out every other session of this user.
+      s.sessions = s.sessions.filter((x) => x.userId !== u.id || x.token === token);
+      this._audit(s, u.email, 'user.password_changed', u.email);
+      return this._publicUser(u);
+    });
+  }
+
+  async _setPassword(u, password, mustChange) {
+    u.salt = newSalt();
+    u.iterations = 100000;
+    u.hash = await hashPassword(password, u.salt, u.iterations);
+    u.mustChangePassword = mustChange;
+    u.failedLogins = 0;
+    u.lockedUntil = null;
+  }
+
+  // Admins create accounts with a temporary password; the person must choose their own when they first sign in.
+  async createUser(token, { email, name, role, password } = {}) {
+    return this._write(async (s) => {
+      const me = this._session(s, token, 'admin');
+      const e = {};
+      const id = String(email || '').trim().toLowerCase();
+      if (id.length < 3 || /\s/.test(id)) e.email = 'Enter an email address or username (no spaces).';
+      else if (s.users.some((u) => u.email.toLowerCase() === id)) e.email = 'There is already an account with this name.';
+      if (!String(name || '').trim()) e.name = 'Enter the person’s name.';
+      if (!ROLES[role]) e.role = 'Choose a role.';
+      const problem = passwordProblem(password);
+      if (problem) e.password = problem;
+      if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
+      const u = { id: uid(), email: id, name: String(name).trim(), role, active: true, createdAt: this.now(), lastLoginAt: null };
+      await this._setPassword(u, password, true);
+      s.users.push(u);
+      this._audit(s, me.email, 'user.created', u.email, ROLES[role].label);
+      return this._publicUser(u);
+    });
+  }
+
+  async updateUser(token, userId, patch = {}) {
+    return this._write(async (s) => {
+      const me = this._session(s, token, 'admin');
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new ValidationError('User not found.');
+      const changes = [];
+      const nextRole = patch.role !== undefined ? patch.role : u.role;
+      const nextActive = patch.active !== undefined ? !!patch.active : u.active;
+      if (!ROLES[nextRole]) throw new ValidationError('Choose a role.');
+      const otherAdmins = s.users.filter((x) => x.id !== u.id && x.active && x.role === 'admin').length;
+      if (u.role === 'admin' && u.active && (nextRole !== 'admin' || !nextActive) && otherAdmins === 0) {
+        throw new ValidationError('There must always be at least one active admin. Make someone else an admin first.');
+      }
+      if (patch.name !== undefined && String(patch.name).trim() && patch.name.trim() !== u.name) { u.name = patch.name.trim(); changes.push('name'); }
+      if (nextRole !== u.role) { changes.push('role ' + u.role + ' → ' + nextRole); u.role = nextRole; }
+      if (nextActive !== u.active) { u.active = nextActive; changes.push(nextActive ? 'reactivated' : 'deactivated'); }
+      if (patch.password) {
+        const problem = passwordProblem(patch.password);
+        if (problem) throw new ValidationError(problem, { password: problem });
+        await this._setPassword(u, patch.password, true);
+        changes.push('password reset');
+      }
+      if (patch.unlock) { u.lockedUntil = null; u.failedLogins = 0; changes.push('unlocked'); }
+      // Role changes, deactivation and password resets end the person's open sessions.
+      if (changes.some((c) => c !== 'name') && u.id !== me.userId) s.sessions = s.sessions.filter((x) => x.userId !== u.id);
+      this._audit(s, me.email, 'user.updated', u.email, changes.join(', ') || 'no change');
+      return this._publicUser(u);
+    });
+  }
+
+  // Full backup for admins: everything except passwords and sessions.
+  async exportData(token) {
     return this._read((s) => {
-      const me = this._requireOrganiser(s, token);
+      const me = this._session(s, token, 'admin');
       const out = clone(s);
       delete out.sessions;
-      out.settings.organisers = out.settings.organisers.map((o) => ({ email: o.email, name: o.name }));
-      out.me = { email: me.email, name: me.name };
+      out.users = s.users.map((u) => this._publicUser(u));
+      out.exportedAt = this.now();
+      out.exportedBy = me.email;
+      return out;
+    });
+  }
+
+  async dashboard(token) {
+    return this._read((s) => {
+      const me = this._session(s, token, 'viewer', { allowMustChange: true });
+      const out = clone(s);
+      delete out.sessions;
+      out.users = me.role === 'admin' ? s.users.map((u) => this._publicUser(u)) : [];
+      out.me = { email: me.email, name: me.name, role: me.role, mustChangePassword: me.mustChangePassword };
+      out.mode = this.mode;
       out.now = this.now();
       out.usage = poolUsage(s.registrations, s.settings, this.now());
       out.chargeViews = s.charges.map((c) => this._chargeView(s, c));
@@ -881,7 +1070,7 @@ export class Backend {
 
   async organiserAction(token, action, args = {}) {
     return this._write((s) => {
-      const me = this._requireOrganiser(s, token);
+      const me = this._session(s, token, 'organiser');
       const who = me.email;
       const reg = args.regId ? s.registrations.find((r) => r.id === args.regId) : null;
       if (args.regId && !reg) throw new ValidationError('Registration not found.');
@@ -1054,7 +1243,7 @@ export class Backend {
 
   async updateSettings(token, patch) {
     return this._write((s) => {
-      const me = this._requireOrganiser(s, token);
+      const me = this._session(s, token, 'admin');
       const before = JSON.stringify(s.settings);
       const next = deepMerge(clone(s.settings), patch);
       const e = [];
@@ -1063,6 +1252,8 @@ export class Backend {
       for (const [cat, f] of Object.entries(next.fees)) if (f.confirmed && !(Number.isInteger(f.amount) && f.amount >= 0)) e.push('Set an amount for ' + CATEGORIES[cat].label + ' before confirming it.');
       if (!(next.waterPoints.price > 0)) e.push('Water point price must be above zero.');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(next.registration.opensOn || '')) e.push('Set the date race entries open.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(next.event.date || '')) e.push('Set the race date.');
+      else if (next.registration.opensOn > next.event.date) e.push('Race entries must open before race day.');
       if (next.launchEvent.date && !/^\d{4}-\d{2}-\d{2}$/.test(next.launchEvent.date)) e.push('The launch event date must be a date.');
       if (next.launchEvent.dateConfirmed && !next.launchEvent.date) e.push('Set the launch event date before confirming it.');
       if (next.launchEvent.website && !/^https?:\/\//i.test(next.launchEvent.website)) e.push('The venue website must start with https://');
@@ -1082,10 +1273,12 @@ export class Backend {
     });
   }
 
+  // Preview only. A live database can never be reset from the site.
   async resetPreview({ withSamples = true } = {}) {
+    if (this.live) throw new ValidationError('Not available on the live site.');
     return this.lock(async () => {
       this.seed = withSamples;
-      this._save(this._fresh());
+      await this._save(this._fresh());
     });
   }
 }

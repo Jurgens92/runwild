@@ -1,5 +1,21 @@
 import { SOCK_SIZES } from './core.js';
 
+// Preview sign-in. The password is public (it is shown on the sign-in page), so only its hash is stored.
+// A live site never gets this account: it starts with the bootstrap admin from the server instead.
+export const PREVIEW_USERS = [{
+  id: 'preview-admin', email: 'organiser@preview.local', name: 'Preview organiser', role: 'admin',
+  salt: 'preview-salt-2026', iterations: 100000, hash: '25923c5e710b2bd5727f2656616cbd21018db45d451e2841c0714d2deb70bea0',
+  active: true, mustChangePassword: false, createdAt: 0, lastLoginAt: null, failedLogins: 0, lockedUntil: null,
+}];
+
+// A live site starts empty: no sample codes, no preview payment page, no entries for categories whose fee is unset.
+export function liveSettings(settings) {
+  settings.inviteCodes = [];
+  settings.payments.previewProvider = false;
+  settings.acceptWhileFeeUnconfirmed = false;
+  return settings;
+}
+
 // Organiser-editable settings and the clearly labelled sample data used by the preview.
 // Anything marked confirmed:false is an open decision that must be settled before launch.
 
@@ -127,10 +143,6 @@ export function defaultSettings() {
       resourcesApproved: false,
       resourcesText: 'Training resources will be shared once approved by the organisers.',
     },
-    organisers: [
-      // Preview credentials. Production uses server-side authentication (see README).
-      { email: 'organiser@preview.local', password: 'runwild-preview', name: 'Preview organiser' },
-    ],
   };
 }
 

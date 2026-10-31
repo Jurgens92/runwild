@@ -2,11 +2,16 @@
   "name": "run-wild-melorane",
   "version": "0.1.0",
   "private": true,
-  "description": "Run Wild Melorane event site (ERP) – static preview with an in-browser backend, plus production SQL.",
+  "description": "Run Wild Melorane event site (ERP): static site for GitHub Pages, with a Supabase Edge Function + Postgres backend (or an in-browser preview backend when no API is configured).",
   "type": "module",
   "scripts": {
-    "test": "node tests/run.mjs",
-    "test:sql": "bash supabase/test.sh",
-    "serve": "python3 -m http.server 8080"
+    "test": "node scripts/sync-function.mjs --check && node tests/run.mjs",
+    "test:server": "bash tests/server.sh",
+    "sync": "node scripts/sync-function.mjs",
+    "serve": "python3 -m http.server 8080",
+    "dev:api": "node scripts/dev-api.mjs"
+  },
+  "devDependencies": {
+    "postgres": "3.4.9"
   }
 }
