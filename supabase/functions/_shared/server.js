@@ -62,8 +62,42 @@ export function pgStore(sql) {
   };
 }
 
+// Email through Resend (https://resend.com), using its HTTP API: Edge Functions cannot use SMTP ports.
+// Settings are Supabase secrets (Edge Functions → Secrets), never stored in this repository:
+//   RESEND_API_KEY     the API key (re_...). Without it, emails are only recorded in Messages.
+//   EMAIL_FROM         sender, e.g. "Run Wild Melorane <onboarding@resend.dev>" (the default)
+//   EMAIL_REDIRECT_TO  optional, for testing: every email goes to this address instead, with the
+//                      intended recipient shown in the subject. Resend's test sender only delivers
+//                      to your own Resend account address, so set this to that address while testing.
+export const DEFAULT_EMAIL_FROM = 'Run Wild Melorane <onboarding@resend.dev>';
+
+export function resendSender({ apiKey, from = DEFAULT_EMAIL_FROM, redirectTo = '', fetchFn = globalThis.fetch }) {
+  return async ({ id, to, subject, text }) => {
+    const body = redirectTo
+      ? { from, to: [redirectTo], subject: '[TEST for ' + to + '] ' + subject, text }
+      : { from, to: [to], subject, text };
+    const res = await fetchFn('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json', 'Idempotency-Key': id },
+      body: JSON.stringify(body),
+    });
+    let data = null;
+    try { data = await res.json(); } catch { /* no JSON body */ }
+    if (!res.ok) throw new Error('Resend ' + res.status + ': ' + ((data && data.message) || res.statusText || 'request failed'));
+    return { id: data && data.id };
+  };
+}
+
+export function emailSenderFromEnv(env, fetchFn) {
+  if (!env.RESEND_API_KEY) return null;
+  return resendSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM || DEFAULT_EMAIL_FROM, redirectTo: env.EMAIL_REDIRECT_TO || '', fetchFn });
+}
+
 // bootstrapAdmin can be replaced in tests, so they never need the real starting password.
-export function makeHandler({ sql, env = {}, now, bootstrapAdmin = BOOTSTRAP_ADMIN }) {
+// emailSender can be replaced in tests. waitUntil (Supabase's EdgeRuntime.waitUntil) lets emails
+// send after the response has gone back, so visitors never wait for them; without it the handler
+// sends them before replying.
+export function makeHandler({ sql, env = {}, now, bootstrapAdmin = BOOTSTRAP_ADMIN, emailSender = emailSenderFromEnv(env), waitUntil = null }) {
   const allowOrigin = env.ALLOWED_ORIGIN || '*';
   const headers = {
     'Access-Control-Allow-Origin': allowOrigin,
@@ -92,10 +126,15 @@ export function makeHandler({ sql, env = {}, now, bootstrapAdmin = BOOTSTRAP_ADM
       bootstrapUsers: [bootstrapAdmin],
       // Until a payment provider is connected this secret is unused; set PAYMENT_WEBHOOK_SECRET when it is.
       providerSecret: env.PAYMENT_WEBHOOK_SECRET || crypto.randomUUID(),
+      emailSender,
       ...(now ? { now } : {}),
     });
     try {
       const result = await be[method](...args);
+      if (be.emailPending) {
+        const sending = be.deliverEmails().catch((e) => console.error('email delivery', e));
+        if (waitUntil) waitUntil(sending); else await sending;
+      }
       return json({ result: result === undefined ? null : result });
     } catch (e) {
       if (e instanceof ValidationError) return json({ error: { name: 'ValidationError', message: e.message, fields: e.fields || {} } }, 400);

@@ -52,6 +52,12 @@ The live database is the free Supabase project `runwild` (`https://oawrrygfebxbm
 3. **Publish the site**: merge into `main` (GitHub Pages serves `main`). Do this after step 2, or the pages cannot load their data.
 4. **First sign-in**: go to `#/organiser`, sign in as `admin` with the starting password you were given privately, and choose your own password. Then create an account for each organiser under **Users**.
 5. Optional hardening: in Supabase → Edge Functions → Secrets, add `ALLOWED_ORIGIN` = `https://jurgens92.github.io` so only the site can call the API from a browser.
+6. **Sending emails** (optional): confirmation emails for race entries, launch registrations, water point sponsorships and donations are sent through [Resend](https://resend.com) (free tier: 3,000 a month, 100 a day). In Supabase → Edge Functions → **Secrets** add:
+   - `RESEND_API_KEY`: a Resend API key with *Sending access* (starts `re_`). Without it, emails are only recorded under **Messages**, as before.
+   - `EMAIL_FROM` (optional): the sender. The default is `Run Wild Melorane <onboarding@resend.dev>`, Resend's test sender, which only delivers to the address of your own Resend account.
+   - `EMAIL_REDIRECT_TO` (optional, for testing): send every email to this address instead (use your Resend account address with the test sender). The subject shows who it was meant for. Remove it to email participants for real.
+
+   To email participants, verify your own domain in Resend (**Domains → Add Domain**, add the DNS records it shows), set `EMAIL_FROM` to an address on that domain and remove `EMAIL_REDIRECT_TO`. No redeploy is needed after changing secrets. Emails are sent just after the response, so visitors never wait for them. **Messages** shows each one as *Sent* or *Failed* (with Resend's reason) and has a *Resend* button. SMS messages are still only recorded.
 
 **Changing the backend later.** Edit the files in `js/`, then run `npm run sync` to copy `core.js`, `defaults.js` and `backend.js` into `supabase/functions/_shared/` (`npm test` fails if you forget). Saved data is upgraded in place when the code changes; it is never reset.
 
@@ -66,7 +72,7 @@ npm run test:server  # the live API on a temporary Postgres: accounts, roles, co
 
 **Running the live API locally** (optional, needs Postgres): create a database, run `supabase/setup.sql` in it, start `DATABASE_URL=postgres://… npm run dev:api`, and set `API_URL` in `js/config.js` to `http://localhost:8787`.
 
-Still to do before taking real money or sending messages: a payment provider webhook (EFT works now, recorded by organisers) and an email/SMS provider (confirmations are queued in the dashboard, marked *Not sent*).
+Still to do before taking real money or sending messages: a payment provider webhook (EFT works now, recorded by organisers) and an SMS provider (SMS confirmations are recorded in the dashboard, marked *Not sent*). Emails are sent once `RESEND_API_KEY` is set (see **Going live**, step 6).
 
 ## Payments
 
@@ -117,7 +123,8 @@ The organiser dashboard has a live version of this list (**Launch checklist** ta
 - [ ] Organiser-approved event terms (currently a labelled draft) and privacy notice reviewed against POPIA
 - [ ] Full pickup address in PJ (the Chief's Hall, 4:30 am)
 - [ ] Run Buddy training resources approved
-- [ ] Email and SMS providers connected
+- [ ] Email provider connected (`RESEND_API_KEY`, own domain verified in Resend)
+- [ ] SMS provider connected
 - [ ] Live backend deployed (see **Going live**), starting admin password changed, an account for each organiser
 
 ## Project layout

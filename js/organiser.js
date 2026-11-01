@@ -529,9 +529,19 @@ const VIEWS = {
 
   messages(m, D) {
     const ms = [...D.outbox].sort((a, b) => b.at - a.at);
+    const pill = (x) => x.status === 'sent' ? statusPill('confirmed', 'Sent')
+      : x.status === 'failed' ? statusPill('cancelled', 'Failed')
+      : ['queued', 'sending'].includes(x.status) ? statusPill('pending', 'Sending')
+      : statusPill('pending', 'Not sent');
+    const note = (x) => x.status === 'sent' ? (x.sentAt ? 'at ' + formatDateTime(x.sentAt) : '') : x.reason || '';
+    const canResend = (x) => D.emailDelivery && x.channel === 'email' && ['failed', 'sent', 'not_sent'].includes(x.status);
+    const failed = ms.filter((x) => x.status === 'failed').length;
     m.innerHTML = `<h2>Messages</h2>
-      <div class="notice warn"><p>No email or SMS provider is connected, so confirmations are recorded here but <strong>not sent</strong>. To send them, connect an email service (for example a transactional email provider) and an SMS gateway – see the README.</p></div>
-      ${table(['When', 'Channel', 'To', 'Ref', 'Message', 'Status'], ms.map((x) => `<tr><td>${formatDateTime(x.at)}</td><td>${x.channel.toUpperCase()}</td><td>${esc(x.to)}</td><td class="ref">${esc(x.ref)}</td><td class="small" style="white-space:pre-line">${esc(x.subject ? x.subject + '\n' : '')}${esc(x.body)}</td><td>${statusPill('pending', 'Not sent')}<br><span class="small muted">${esc(x.reason)}</span></td></tr>`), 'No messages yet.')}`;
+      ${D.emailDelivery
+        ? `<div class="notice"><p>Emails are <strong>sent</strong> through the connected email provider (Resend). SMS messages are recorded here but not sent: no SMS gateway is connected yet.${failed ? ` <strong>${failed} email${failed > 1 ? 's' : ''} failed</strong> – see the reason and use Resend.` : ''}</p></div>`
+        : `<div class="notice warn"><p>No email or SMS provider is connected, so confirmations are recorded here but <strong>not sent</strong>. To send emails, add a Resend API key to the live API – see the README.</p></div>`}
+      ${table(['When', 'Channel', 'To', 'Ref', 'Message', 'Status'], ms.map((x) => `<tr><td>${formatDateTime(x.at)}</td><td>${x.channel.toUpperCase()}</td><td>${esc(x.to)}</td><td class="ref">${esc(x.ref)}</td><td class="small" style="white-space:pre-line">${esc(x.subject ? x.subject + '\n' : '')}${esc(x.body)}</td><td>${pill(x)}<br><span class="small muted">${esc(note(x))}</span>${canResend(x) ? `<br><button class="btn small plain" data-resend="${esc(x.id)}">Resend</button>` : ''}</td></tr>`), 'No messages yet.')}`;
+    $$('[data-resend]', m).forEach((b) => b.addEventListener('click', () => act('resendMessage', { messageId: b.dataset.resend }, 'Email queued to send')));
   },
 
   audit(m, D) {
@@ -766,7 +776,8 @@ function checklistView(m, D) {
     ['Event terms approved', S.terms.approved],
     ['Full pickup address in PJ', S.event.pickupAddressConfirmed],
     ['Run Buddy training resources approved', S.buddy.resourcesApproved],
-    ['Email and SMS providers connected', S.messaging.emailConnected && S.messaging.smsConnected],
+    ['Email provider connected (Resend API key on the live API)', !!D.emailDelivery || S.messaging.emailConnected],
+    ['SMS gateway connected', S.messaging.smsConnected],
     ['Each organiser has their own account (Users)', D.users.filter((u) => u.active).length > 1],
     ['Site connected to the live database (js/config.js)', LIVE],
     ['Production backend deployed (server-side capacity and permissions – see README)', false],
