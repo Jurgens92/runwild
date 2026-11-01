@@ -130,7 +130,7 @@ const catLabel = (k) => CATEGORIES[k].label;
 
 function table(head, rows, empty = 'Nothing here yet.') {
   if (!rows.length) return `<p class="muted">${empty}</p>`;
-  return `<div class="table-wrap"><table class="data"><thead><tr>${head.map((h) => `<th${h.startsWith('#') ? ' class="num"' : ''}>${esc(h.replace(/^#/, ''))}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  return `<div class="table-wrap"><table class="data"><thead><tr>${head.map((h) => `<th${h.length > 1 && h.startsWith('#') ? ' class="num"' : ''}>${esc(h.length > 1 ? h.replace(/^#/, '') : h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
 function csvDownload(name, header, rows) {
