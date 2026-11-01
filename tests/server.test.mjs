@@ -2,7 +2,7 @@
 // Uses the exact handler the Supabase Edge Function runs.
 
 import postgres from 'postgres';
-import { makeHandler } from '../supabase/functions/_shared/server.js';
+import { makeHandler, emailSenderFromEnv } from '../supabase/functions/_shared/server.js';
 import { hashPassword } from '../js/backend.js';
 
 // Connection comes from PGHOST/PGPORT/PGUSER/PGDATABASE (set by tests/server.sh) or DATABASE_URL.
@@ -143,6 +143,29 @@ await check('An older stored version is upgraded in place, not wiped', async () 
   const d = await ok('dashboard', admin);
   assert(d.registrations.length === 64 && Array.isArray(d.stock), 'data kept, new collection added: ' + d.registrations.length);
   assert(d.audit.some((a) => a.action === 'database.upgraded'), 'upgrade recorded');
+});
+
+await check('Emails are sent through Resend with the secret key, and recorded as sent', async () => {
+  const calls = [];
+  const fetchFn = async (url, init) => { calls.push({ url, init }); return new Response(JSON.stringify({ id: 'resend-1' }), { status: 200 }); };
+  const env = { RESEND_API_KEY: 're_test', EMAIL_REDIRECT_TO: 'me@example.org' };
+  const h = makeHandler({ sql, env, bootstrapAdmin, emailSender: emailSenderFromEnv(env, fetchFn) });
+  const res = await h(new Request('http://local/api', { method: 'POST', body: JSON.stringify({ method: 'submitLaunchRegistration', args: [{ firstName: 'Mail', surname: 'Test', email: 'mail.test@example.org', clientRequestId: 'mail-1' }] }) }));
+  const body = await res.json();
+  assert(!body.error, 'launch registration: ' + (body.error && body.error.message));
+  {
+    assert(calls.length === 1 && calls[0].url === 'https://api.resend.com/emails', 'one Resend call');
+    const sentBody = JSON.parse(calls[0].init.body);
+    assert(calls[0].init.headers.Authorization === 'Bearer re_test', 'uses the key');
+    assert(sentBody.to[0] === 'me@example.org' && sentBody.subject.includes('mail.test@example.org'), 'redirected for testing');
+    const [row] = await sql`select m->>'status' as status from app_state, jsonb_array_elements(state->'outbox') m where m->>'to' = 'mail.test@example.org'`;
+    assert(row && row.status === 'sent', 'saved as sent: ' + JSON.stringify(row));
+  }
+  const failing = emailSenderFromEnv({ RESEND_API_KEY: 'k' }, async () => new Response(JSON.stringify({ message: 'invalid from' }), { status: 422 }));
+  let msg = '';
+  try { await failing({ id: 'x', to: 'a@b.c', subject: 's', text: 't' }); } catch (e) { msg = e.message; }
+  assert(msg === 'Resend 422: invalid from', 'provider error explained: ' + msg);
+  assert(emailSenderFromEnv({}) === null, 'no key, no sender');
 });
 
 await sql.end();

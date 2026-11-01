@@ -578,4 +578,54 @@ export const scenarios = [
       assert(c.email && c.mobile, 'includes contact details for emailing');
     },
   },
+  {
+    name: 'With an email provider, confirmations are sent once and failures can be resent',
+    async run() {
+      const sent = [];
+      let fail = false;
+      const emailSender = async (m) => { if (fail) throw new Error('provider down'); sent.push(m); return { id: 'prov-' + sent.length }; };
+      const clock = { t: Date.UTC(2026, 9, 23, 8) };
+      const be = new Backend({ storage: memoryStorage(), now: () => clock.t, lock: inProcessLock(), seed: false, emailSender });
+      await be._write((s) => { s.settings.registration.opensOn = '2026-10-01'; });
+      const r = await be.submitRegistration(person('other', '5k'));
+      assert(be.emailPending, 'request flags a queued email');
+      const out1 = await be.deliverEmails();
+      eq(out1.sent, 1, 'one email sent');
+      eq(sent[0].subject, 'Run Wild Melorane – ' + r.ref, 'confirmation subject');
+      assert(sent[0].text.includes(r.ref), 'body has the reference');
+      eq((await be.deliverEmails()).sent, 0, 'never sent twice');
+      const ob = await be._read((s) => s.outbox);
+      const em = ob.find((x) => x.channel === 'email');
+      eq(em.status, 'sent', 'marked sent');
+      eq(em.providerId, 'prov-1', 'provider id kept');
+      eq(ob.find((x) => x.channel === 'sms').status, 'not_sent', 'SMS still only recorded');
+      fail = true;
+      await be.submitRegistration(person('other', '5k'));
+      eq((await be.deliverEmails()).failed, 1, 'failure reported');
+      const bad = await be._read((s) => s.outbox.find((x) => x.status === 'failed'));
+      assert(bad.reason.includes('provider down'), 'reason kept');
+      fail = false;
+      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      await be.organiserAction(tok, 'resendMessage', { messageId: bad.id });
+      eq((await be.deliverEmails()).sent, 1, 'resent');
+      eq(sent[1].id === sent[0].id, false, 'each attempt has its own idempotency key');
+      const d = await be.dashboard(tok);
+      eq(d.emailDelivery, true, 'dashboard knows email is connected');
+    },
+  },
+  {
+    name: 'Without an email provider, emails are only recorded (preview)',
+    async run() {
+      const { be } = await setup();
+      await be.submitRegistration(person('other', '5k'));
+      eq(be.emailPending, false, 'nothing to send');
+      eq((await be.deliverEmails()).sent, 0, 'no sender');
+      const em = await be._read((s) => s.outbox.find((x) => x.channel === 'email'));
+      eq(em.status, 'not_sent', 'recorded only');
+      const tok = (await be.login('organiser@preview.local', 'runwild-preview')).token;
+      let refused = false;
+      try { await be.organiserAction(tok, 'resendMessage', { messageId: em.id }); } catch (e) { refused = e instanceof ValidationError; }
+      assert(refused, 'cannot resend without a provider');
+    },
+  },
 ];

@@ -10,6 +10,11 @@ import { makeHandler } from '../_shared/server.js';
 // connection pooler.
 const sql = postgres(Deno.env.get('SUPABASE_DB_URL')!, { prepare: false, max: 4 });
 
-const handle = makeHandler({ sql, env: Deno.env.toObject() });
+// Queued emails are sent after the response, so registering never waits on the email provider.
+// deno-lint-ignore no-explicit-any
+const runtime = (globalThis as any).EdgeRuntime;
+const waitUntil = runtime && runtime.waitUntil ? (p: Promise<unknown>) => runtime.waitUntil(p) : null;
+
+const handle = makeHandler({ sql, env: Deno.env.toObject(), waitUntil });
 
 Deno.serve(handle);

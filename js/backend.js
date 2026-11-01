@@ -105,9 +105,14 @@ function passwordProblem(pw) {
 // browser and offers no real protection; a live server passes its own secret and never exposes signing.
 const PREVIEW_PROVIDER_SECRET = 'preview-only-not-secret';
 
+// A 'sending' email older than this was cut off mid-send (the server stopped). It is marked failed,
+// not sent again, because it may already have arrived; an organiser can resend it.
+const STALE_SEND_MS = 10 * 60000;
+const SEND_BATCH = 10;
+
 export class Backend {
   // mode: 'preview' (browser) or 'live' (server). bootstrapUsers: the accounts a brand-new live database starts with.
-  constructor({ storage = memoryStorage(), now = () => Date.now(), lock = defaultLock(), seed = true, mode = 'preview', bootstrapUsers = null, providerSecret = PREVIEW_PROVIDER_SECRET } = {}) {
+  constructor({ storage = memoryStorage(), now = () => Date.now(), lock = defaultLock(), seed = true, mode = 'preview', bootstrapUsers = null, providerSecret = PREVIEW_PROVIDER_SECRET, emailSender = null } = {}) {
     this.storage = storage;
     this.now = now;
     this.lock = lock;
@@ -115,9 +120,14 @@ export class Backend {
     this.seed = mode === 'live' ? false : seed;
     this.bootstrapUsers = bootstrapUsers;
     this.providerSecret = providerSecret;
+    // emailSender: async ({ id, to, subject, text }) => ({ id }), throwing on failure. Only the live
+    // server passes one (see supabase/functions/_shared/server.js); without it emails are only recorded.
+    this.emailSender = emailSender;
+    this.emailPending = false; // set when this request queued an email, so the server knows to send
   }
 
   get live() { return this.mode === 'live'; }
+  get emailDelivery() { return !!this.emailSender; }
 
   // ---------- state handling ----------
 
@@ -254,12 +264,61 @@ export class Backend {
   }
 
   _queueMessage(s, { to, channel, subject, body, ref }) {
+    if (channel === 'email' && this.emailSender) {
+      s.outbox.push({ id: uid(), at: this.now(), channel, to, subject, body, ref, status: 'queued', reason: 'Waiting to send' });
+      this.emailPending = true;
+      return;
+    }
     const connected = channel === 'email' ? s.settings.messaging.emailConnected : s.settings.messaging.smsConnected;
     s.outbox.push({
       id: uid(), at: this.now(), channel, to, subject, body, ref,
       status: 'not_sent',
       reason: connected ? 'Delivery not attempted in the preview' : 'No ' + (channel === 'email' ? 'email' : 'SMS') + ' provider connected',
     });
+  }
+
+  // Sends queued emails. Runs after the request's own change is saved, outside that transaction:
+  // the emails are claimed ('sending') under the lock, sent without holding it, then the outcome is
+  // saved. A claimed email is never picked up twice, so concurrent requests cannot double-send.
+  async deliverEmails() {
+    if (!this.emailSender) return { sent: 0, failed: 0 };
+    this.emailPending = false;
+    const claimed = await this.lock(async () => {
+      const { st } = await this._load();
+      const now = this.now();
+      let changed = false;
+      for (const m of st.outbox) {
+        if (m.channel === 'email' && m.status === 'sending' && now - (m.claimedAt || 0) > STALE_SEND_MS) {
+          m.status = 'failed'; m.reason = 'Sending was interrupted – it may not have arrived. Resend if needed.'; changed = true;
+        }
+      }
+      const picked = st.outbox.filter((m) => m.channel === 'email' && m.status === 'queued').slice(0, SEND_BATCH);
+      for (const m of picked) { m.status = 'sending'; m.claimedAt = now; m.attempts = (m.attempts || 0) + 1; changed = true; }
+      if (changed) await this._save(st);
+      return clone(picked);
+    });
+    if (!claimed.length) return { sent: 0, failed: 0 };
+    const results = [];
+    for (const m of claimed) {
+      try {
+        const r = await this.emailSender({ id: m.id + '-' + m.attempts, to: m.to, subject: m.subject, text: m.body });
+        results.push({ id: m.id, ok: true, providerId: (r && r.id) || null });
+      } catch (e) {
+        results.push({ id: m.id, ok: false, error: String((e && e.message) || e).slice(0, 300) });
+      }
+    }
+    await this.lock(async () => {
+      const { st } = await this._load();
+      for (const r of results) {
+        const m = st.outbox.find((x) => x.id === r.id);
+        if (!m || m.status !== 'sending') continue;
+        if (r.ok) { m.status = 'sent'; m.sentAt = this.now(); m.providerId = r.providerId; m.reason = ''; }
+        else { m.status = 'failed'; m.reason = r.error; }
+      }
+      await this._save(st);
+    });
+    const sent = results.filter((r) => r.ok).length;
+    return { sent, failed: results.length - sent };
   }
 
   // ---------- public, no personal data ----------
@@ -1087,6 +1146,7 @@ export class Backend {
       out.users = me.role === 'admin' ? s.users.map((u) => this._publicUser(u)) : [];
       out.me = { email: me.email, name: me.name, role: me.role, mustChangePassword: me.mustChangePassword };
       out.mode = this.mode;
+      out.emailDelivery = this.emailDelivery;
       out.now = this.now();
       out.usage = poolUsage(s.registrations, s.settings, this.now());
       out.chargeViews = s.charges.map((c) => this._chargeView(s, c));
@@ -1254,6 +1314,16 @@ export class Backend {
           const m = s.matches.find((x) => x.id === args.matchId);
           if (!m) throw new ValidationError('Match not found.');
           this._setConsent(s, m, args.side, args.agree, who + ' (recorded on behalf)');
+          return null;
+        }
+        case 'resendMessage': {
+          const m = s.outbox.find((x) => x.id === args.messageId);
+          if (!m) throw new ValidationError('Message not found.');
+          if (m.channel !== 'email' || !this.emailSender) throw new ValidationError('No email provider is connected, so this cannot be sent.');
+          if (['queued', 'sending'].includes(m.status)) throw new ValidationError('This email is already being sent.');
+          m.status = 'queued'; m.reason = 'Waiting to send';
+          this.emailPending = true;
+          this._audit(s, who, 'message.resent', m.ref, 'Email to ' + m.to);
           return null;
         }
         case 'endMatch': {
