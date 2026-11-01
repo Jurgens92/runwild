@@ -15,6 +15,8 @@ Community members and Melorane employees enter **free**. Every one of their entr
 | Public pages | Home · Launch event · Race info & FAQ · Get involved (water points, donations, Run Buddy) · My entry · Register. Canvas Lodge is linked from Home and Race info. |
 | Organiser dashboard | `#/organiser` – sign in with an account an admin created (see **Going live** for the first admin) |
 
+**Entry confirmation PDF.** After registering, and on **My entry**, participants can download their confirmation as a PDF (as well as print it). In the dashboard, **Participants → View** has *Download confirmation PDF* and, when the entry has an email address, *Email PDF to participant*: it downloads the PDF and opens the organiser's email program with a ready-made message to the participant – attach the PDF and send. The PDF is drawn in the browser with [jsPDF](https://github.com/parallax/jsPDF) (MIT, bundled in `js/vendor/`, loaded only when needed), so nothing is uploaded anywhere.
+
 ## How it works
 
 The site is plain HTML, CSS and JavaScript with no build step, hosted for free on GitHub Pages. All the business rules live in `js/backend.js`, which runs in one of two places:
@@ -58,7 +60,7 @@ The live database is the free Supabase project `runwild` (`https://oawrrygfebxbm
 **Tests.**
 
 ```bash
-npm test             # 24 acceptance scenarios (also runnable from the dashboard)
+npm test             # 28 acceptance scenarios (also runnable from the dashboard)
 npm run test:server  # the live API on a temporary Postgres: accounts, roles, concurrency, reports, lock-down
 ```
 

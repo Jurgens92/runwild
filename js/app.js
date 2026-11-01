@@ -2,6 +2,7 @@ import { api, LIVE, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, f
 import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain, formatDay } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
+import { bindPdfButton } from './pdf.js';
 import { routeExplorer, routeFacts } from './route.js';
 
 const app = $('#app');
@@ -747,6 +748,7 @@ function renderMine(box, r, creds, reload) {
   const m = r.match;
   const canSocks = r.status !== 'cancelled' && !r.socks;
   box.innerHTML = `<div class="card" style="margin-top:20px">${confirmationHTML(r)}
+    <div class="btn-row no-print" style="margin-top:16px"><button class="btn small" id="pdf">Download confirmation (PDF)</button><button class="btn small plain" onclick="window.print()">Print</button></div>
     ${m ? `<h3>Your Run Buddy introduction</h3>
       ${m.partnerContact ? `<div class="notice ok"><p>You have both agreed. ${esc(m.partnerContact.name)} – ${esc(m.partnerContact.mobile)}${m.partnerContact.email ? ' – ' + esc(m.partnerContact.email) : ''}</p></div>`
         : m.myConsent ? `<p>You have agreed to be introduced to ${esc(m.partnerFirstName)}. Contact details are shared once they agree too.</p>`
@@ -776,6 +778,7 @@ function renderMine(box, r, creds, reload) {
         <p class="small muted" style="grid-column:1/-1;margin:0">${r.socksPrice ? rand(r.socksPrice) + ' per pair, paid separately.' : 'Price to be confirmed – nothing is payable for socks until it is set.'}</p>
         <div class="notice bad form-error" hidden style="grid-column:1/-1"></div></form>` : ''}
   </div>`;
+  bindPdfButton($('#pdf', box), () => r);
   const act = async (fn) => { try { await fn(); toast('Saved'); reload(); } catch (e) { toast(e.message, true); } };
   $('#m-yes', box)?.addEventListener('click', () => act(() => api.consentToMatch(creds.ref, creds.mobile, true)));
   $('#m-no', box)?.addEventListener('click', () => act(() => api.consentToMatch(creds.ref, creds.mobile, false)));

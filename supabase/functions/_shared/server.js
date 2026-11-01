@@ -17,7 +17,7 @@ export const ALLOWED_METHODS = [
   'publicSummary', 'checkInviteCode', 'submitRegistration', 'myEntry', 'consentToMatch', 'updateMyBuddy',
   'requestLodgeForEntry', 'addSocksForEntry', 'startCheckout', 'submitSponsorship', 'submitContribution',
   'submitLaunchRegistration', 'login', 'logout', 'dashboard', 'organiserAction', 'updateSettings',
-  'createUser', 'updateUser', 'changePassword', 'exportData',
+  'createUser', 'updateUser', 'changePassword', 'exportData', 'entryConfirmation',
 ];
 
 // The account a brand-new live database starts with. Only the password's hash is stored here; the

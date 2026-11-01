@@ -2,6 +2,7 @@ import { api, LIVE, esc, $, $$, toast, statusPill, sampleBadge, rand, formatDate
 import { CATEGORIES, DISTANCES, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES } from './core.js';
 import { AuthError, ROLES } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
+import { bindPdfButton, emailConfirmation } from './pdf.js';
 
 const TABS = [
   ['overview', 'Overview'], ['launch', 'Launch event'], ['participants', 'Participants'], ['verify', 'Verification'], ['waitlist', 'Waitlist & cancelled'],
@@ -184,7 +185,12 @@ function participantDialog(D, r) {
       <tr><th>Terms version</th><td>${esc(r.termsVersion)}</td></tr>
     </tbody></table>
     ${chargesFor(D, r.id).concat(lr ? chargesFor(D, lr.id) : []).map((c) => `<p class="small">${esc(c.label)}: ${rand(c.amount)} · paid ${rand(c.paid)} · <strong>outstanding ${rand(c.outstanding)}</strong> <span class="ref">${esc(c.ref)}</span></p>`).join('')}
-    <div class="btn-row" style="margin-top:12px"><button class="btn small plain" value="close" onclick="this.closest('dialog').close()">Close</button></div>`);
+    <div class="btn-row" style="margin-top:12px"><button class="btn small" id="pdf">Download confirmation PDF</button>${r.email ? '<button class="btn small" id="pdf-mail">Email PDF to participant</button>' : ''}<button class="btn small plain" value="close" onclick="this.closest('dialog').close()">Close</button></div>
+    ${r.email ? '<p class="small muted">“Email PDF” downloads the PDF and opens your email program addressed to ' + esc(r.email) + '. Attach the downloaded PDF before sending.</p>' : '<p class="small muted">No email address on this entry – download the PDF and share it another way.</p>'}`, (d) => {
+    const conf = () => api.entryConfirmation(token, r.id);
+    bindPdfButton($('#pdf', d), conf);
+    bindPdfButton($('#pdf-mail', d), conf, emailConfirmation);
+  });
 }
 
 function eftDialog(c) {
