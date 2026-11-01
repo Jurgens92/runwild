@@ -539,8 +539,11 @@ const VIEWS = {
     m.innerHTML = `<h2>Messages</h2>
       ${D.emailDelivery
         ? `<div class="notice"><p>Emails are <strong>sent</strong> through the connected email provider (Resend). SMS messages are recorded here but not sent: no SMS gateway is connected yet.${failed ? ` <strong>${failed} email${failed > 1 ? 's' : ''} failed</strong> – see the reason and use Resend.` : ''}</p></div>`
-        : `<div class="notice warn"><p>No email or SMS provider is connected, so confirmations are recorded here but <strong>not sent</strong>. To send emails, add a Resend API key to the live API – see the README.</p></div>`}
+        : `<div class="notice warn"><p>No email or SMS provider is connected, so confirmations are recorded here but <strong>not sent</strong>. ${LIVE ? 'The live API did not find a <code>RESEND_API_KEY</code> secret. In Supabase → Edge Functions → Secrets, check it is there and spelled exactly like that.' : 'To send emails, add a Resend API key to the live API – see the README.'}</p></div>`}
+      ${D.emailDelivery && D.me.role === 'admin' ? `<form id="testmail" class="btn-row" style="margin-bottom:16px"><input name="to" type="email" required placeholder="Email address" value="${esc(D.me.email.includes('@') ? D.me.email : '')}" style="max-width:280px"><button class="btn small">Send test email</button></form>` : ''}
       ${table(['When', 'Channel', 'To', 'Ref', 'Message', 'Status'], ms.map((x) => `<tr><td>${formatDateTime(x.at)}</td><td>${x.channel.toUpperCase()}</td><td>${esc(x.to)}</td><td class="ref">${esc(x.ref)}</td><td class="small" style="white-space:pre-line">${esc(x.subject ? x.subject + '\n' : '')}${esc(x.body)}</td><td>${pill(x)}<br><span class="small muted">${esc(note(x))}</span>${canResend(x) ? `<br><button class="btn small plain" data-resend="${esc(x.id)}">Resend</button>` : ''}</td></tr>`), 'No messages yet.')}`;
+    const tm = $('#testmail', m);
+    if (tm) tm.addEventListener('submit', (e) => { e.preventDefault(); act('sendTestEmail', { to: tm.elements.to.value }, 'Test email sent – the status below updates when you reopen Messages'); });
     $$('[data-resend]', m).forEach((b) => b.addEventListener('click', () => act('resendMessage', { messageId: b.dataset.resend }, 'Email queued to send')));
   },
 

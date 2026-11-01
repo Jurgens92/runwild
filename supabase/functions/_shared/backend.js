@@ -336,6 +336,7 @@ export class Backend {
         reservationHours: st.reservation.expiryHours,
         registration: { mode: st.registration.mode, opensOn: st.registration.opensOn, opensAt: st.registration.opensAt, opensLabel: opensLabel(st.registration), open: registrationOpen(st, now) },
         launch: clone(st.launchEvent),
+        emailDelivery: this.emailDelivery,
         terms: clone(st.terms),
         socks: clone(st.socks),
         verifyCategories: clone(st.verifyCategories || []),
@@ -1314,6 +1315,15 @@ export class Backend {
           const m = s.matches.find((x) => x.id === args.matchId);
           if (!m) throw new ValidationError('Match not found.');
           this._setConsent(s, m, args.side, args.agree, who + ' (recorded on behalf)');
+          return null;
+        }
+        case 'sendTestEmail': {
+          if (me.role !== 'admin') throw new AuthError('Only an admin can send a test email.');
+          if (!this.emailSender) throw new ValidationError('No email provider is connected: the live API has no RESEND_API_KEY secret.');
+          const to = String(args.to || '').trim();
+          if (!validEmail(to)) throw new ValidationError('Enter a valid email address.', { to: 'Enter a valid email address.' });
+          this._queueMessage(s, { to, channel: 'email', subject: 'Run Wild Melorane – test email', body: 'This is a test email from the Run Wild Melorane site, sent by ' + who + '. If you can read this, email sending works.', ref: 'TEST' });
+          this._audit(s, who, 'message.test', 'TEST', 'Test email to ' + to);
           return null;
         }
         case 'resendMessage': {
