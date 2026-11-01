@@ -611,6 +611,10 @@ export const scenarios = [
       eq(sent[1].id === sent[0].id, false, 'each attempt has its own idempotency key');
       const d = await be.dashboard(tok);
       eq(d.emailDelivery, true, 'dashboard knows email is connected');
+      eq((await be.publicSummary()).emailDelivery, true, 'public pages know emails really go out');
+      await be.organiserAction(tok, 'sendTestEmail', { to: 'me@example.org' });
+      eq((await be.deliverEmails()).sent, 1, 'test email sent');
+      eq(sent[2].to, 'me@example.org', 'to the address given');
     },
   },
   {

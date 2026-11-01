@@ -30,6 +30,16 @@ export function statusPill(status, label) {
   return `<span class="status ${esc(status)}">${esc(text)}</span>`;
 }
 
+// The line under a confirmation saying whether an email really went out. s is publicSummary().
+export function messageNote(s, hasEmail = true) {
+  let t;
+  if (!LIVE) t = 'A confirmation ' + (hasEmail ? 'email has' : 'SMS has') + ' been queued. In this preview no email or SMS provider is connected, so nothing is actually sent.';
+  else if (hasEmail && s && s.emailDelivery) t = 'A confirmation email is on its way. If it has not arrived in a few minutes, check your spam or junk folder.';
+  else if (hasEmail) t = 'Confirmation emails are not switched on yet, so please keep your reference number.';
+  else t = 'Confirmation by SMS is not available yet, so please keep your reference number.';
+  return `<p class="small muted" style="margin-top:16px">${esc(t)}</p>`;
+}
+
 export function pageHead(eyebrow, title, intro = '', back = null) {
   return `<section class="page-head"><div class="wrap">${back ? `<a class="back" href="${esc(back.href)}">← ${esc(back.label)}</a><br>` : ''}<span class="eyebrow">${esc(eyebrow)}</span><h1>${esc(title)}</h1>${intro ? `<p>${intro}</p>` : ''}</div></section>`;
 }

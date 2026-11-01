@@ -1,4 +1,4 @@
-import { api, esc, $, $$, pageHead, showErrors, rand, formatDate, tbc } from './ui.js';
+import { api, esc, $, $$, pageHead, messageNote, showErrors, rand, formatDate, tbc } from './ui.js';
 import { formatDay, CATEGORIES, DISTANCES, SHIRT_SIZES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, validEmail, validMobile } from './core.js';
 import { confirmationHTML } from './app.js';
 import { bindPdfButton } from './pdf.js';
@@ -409,7 +409,7 @@ export async function renderRegister(el) {
     if (d.category === 'community') Object.assign(input, { pickupAck: d.pickupAck, buddy: { optIn: d.communityBuddy } });
     try {
       const conf = await api.submitRegistration(input, { token: token || undefined });
-      showConfirmation(el, conf, d);
+      showConfirmation(el, conf, d, s);
     } catch (err) {
       submitting = false;
       $('#next').disabled = false;
@@ -423,14 +423,14 @@ export async function renderRegister(el) {
   draw();
 }
 
-function showConfirmation(el, conf, d) {
+function showConfirmation(el, conf, d, s) {
   const heading = { confirmed: 'You’re in', reserved: 'Your place is reserved', waitlisted: 'You’re on the waitlist', draft: 'Entry received – awaiting verification' }[conf.status] || 'Registration received';
   el.innerHTML = `${pageHead('Entries', heading)}
     <section class="section"><div class="wrap narrow">
       ${conf.duplicateSubmission ? '<div class="notice"><p>We had already received this registration, so no duplicate entry was created.</p></div>' : ''}
       <div class="notice sun"><p><strong>Keep your reference number.</strong> You need it with your mobile number to view your entry, pay, or ask the organisers anything.${!d.email ? ' As you did not give an email address, please write it down or take a screenshot now.' : ''}</p></div>
       <div class="card">${confirmationHTML(conf)}</div>
-      <p class="small muted" style="margin-top:16px">A confirmation ${d.email ? 'email and SMS have' : 'SMS has'} been queued. In this preview no email or SMS provider is connected, so nothing has actually been sent.</p>
+      ${messageNote(s, !!d.email)}
       <div class="btn-row no-print"><a class="btn navy" href="#/my-entry/${encodeURIComponent(conf.ref)}">Go to My entry</a><button class="btn" id="pdf">Download PDF</button><button class="btn plain" onclick="window.print()">Print</button></div>
     </div></section>`;
   bindPdfButton(el.querySelector('#pdf'), () => conf);

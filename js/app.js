@@ -1,4 +1,4 @@
-import { api, LIVE, esc, $, $$, toast, tbc, pageHead, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
+import { api, LIVE, esc, $, $$, toast, tbc, pageHead, messageNote, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
 import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain, formatDay } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
@@ -314,7 +314,7 @@ async function launch(el) {
           </tbody></table>
           ${r.personalEmail ? '<p class="small muted">You registered with a personal email address. That is fine – if you have a work address, you are welcome to let us know.</p>' : ''}
           <div class="notice sun" style="margin-top:16px"><p><strong>This is not a race entry.</strong> Entries for the ${formatDate(r.raceDate)} race ${r.raceOpensLabel ? 'open on ' + esc(r.raceOpensLabel) : 'are not open yet'}. We will email you once the launch date is confirmed.</p></div>
-          <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
+          ${messageNote(s)}
           <div class="btn-row"><a class="btn plain" href="#/">Back to home</a><a class="btn plain" href="#/info">Race info</a></div>
         </div></section>`;
       window.scrollTo(0, 0);
@@ -466,7 +466,7 @@ async function waterPoints(el, [preselect]) {
         <div class="notice sun"><p>Reference <span class="ref">${esc(r.ref)}</span>. The point is held until <strong>${formatDateTime(r.expiresAt)}</strong>. It becomes a confirmed sponsorship once payment has been verified.</p></div>
         ${chargesTable([r.charge], { payments: sum.payments })}
         ${eftBlock(sum.payments, [r.charge.ref])}
-        <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
+        ${messageNote(sum)}
       </div></section>`;
       window.scrollTo(0, 0);
     } catch (err) {
@@ -559,7 +559,7 @@ async function donate(el) {
           <div class="notice ok"><p>Donation reference <span class="ref">${esc(c.ref)}</span>: ${c.runners ? 'kit for ' + c.runners + ' runner' + (c.runners > 1 ? 's' : '') + ', ' : ''}${rand(c.amount)}.</p></div>
           ${chargesTable([c.charge], { payments: sum.payments })}
           ${eftBlock(sum.payments, [c.charge.ref])}
-          <p class="small muted">A confirmation email has been queued. In this preview no email provider is connected, so nothing is actually sent.</p>
+          ${messageNote(sum)}
           <a class="btn plain" href="#/donate">Back to donations</a>
         </div></section>`;
       window.scrollTo(0, 0);
