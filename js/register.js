@@ -242,7 +242,7 @@ export async function renderRegister(el) {
       const so = s.socks;
       const kitNeeds = [d.kit.needsShoes && 'Shoes (' + d.kit.shoeSize + ' ' + d.kit.shoeSystem + ')', d.kit.needsKit && 'Kit (shorts ' + d.kit.shortsSize + ')'].filter(Boolean).join(', ') || 'None';
       return `<h2>Check your entry</h2>
-        ${s.terms.approved ? '' : '<div class="notice warn"><p><strong>Preview:</strong> the event terms are still a draft awaiting organiser approval.</p></div>'}
+        ${s.terms.approved ? '' : '<div class="notice warn"><p><strong>Please note:</strong> the event terms are provisional and may be updated before race day.</p></div>'}
         <table class="summary"><tbody>
           <tr><th>Category</th><td>${esc(c.label)}${c.employee ? (d.inviteCode ? ' · code ' + esc(d.inviteCode) : ' · to be verified by organisers') : ''}</td></tr>
           <tr><th>Name</th><td>${esc(d.fullName)}</td></tr>
@@ -272,7 +272,7 @@ export async function renderRegister(el) {
         ${checked(d.category) && !d.organiserVerified ? `<div class="notice"><p>${CHECK_NOTE} We will let you know once it is confirmed.</p></div>` : ''}
         ${needsCode && !d.inviteCode ? '<div class="notice warn"><p>Without an invitation code, your entry waits for organiser verification before a place is allocated.</p></div>' : ''}
         ${fee.amount && fee.confirmed ? `<p class="small muted">After submitting, your place is reserved for ${s.reservationHours} hours while you pay.</p>` : ''}
-        <details style="margin-top:12px"><summary>Read the event terms</summary><div><p>${esc(s.terms.text)}</p><p class="small muted">Version ${esc(s.terms.version)}${s.terms.approved ? '' : ' – draft'}</p></div></details>
+        <details style="margin-top:12px"><summary>Read the event terms</summary><div><p>${esc(s.terms.text)}</p><p class="small muted">Version ${esc(s.terms.version)}${s.terms.approved ? '' : ' – provisional'}</p></div></details>
         <details><summary>Read the privacy notice</summary><div><p>ERP uses your details only to run Run Wild Melorane: entries and payments, safety and transport on the day, kit distribution and the Run Buddy programme. Only authorised organisers can see them. We never publish names, contact details, sizes or individual needs, and we only share your contact details with a Run Buddy once you have both agreed. You may ask to see, correct or delete your information at any time (POPIA).</p></div></details>
         <div class="field" data-field="termsAccepted" style="margin-top:16px"><label class="check"><input type="checkbox" name="termsAccepted" ${d.termsAccepted ? 'checked' : ''}> I accept the event terms.</label></div>
         <div class="field" data-field="privacyAck"><label class="check"><input type="checkbox" name="privacyAck" ${d.privacyAck ? 'checked' : ''}> I have read the privacy notice.</label></div>`;

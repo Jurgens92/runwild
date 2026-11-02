@@ -115,7 +115,7 @@ function mapSVG(route, other) {
   }).join('');
   const start = route.pts[0];
   const scale = route.unitsPerKm;
-  return `<svg viewBox="0 0 ${W} ${H}" class="rt-map" role="img" aria-label="Sample outline of the ${route.label} course: a loop starting and finishing at the reserve gate, with ${route.waterPoints.length} water point${route.waterPoints.length > 1 ? 's' : ''}.">
+  return `<svg viewBox="0 0 ${W} ${H}" class="rt-map" role="img" aria-label="Indicative outline of the ${route.label} course: a loop starting and finishing at the reserve gate, with ${route.waterPoints.length} water point${route.waterPoints.length > 1 ? 's' : ''}.">
     <rect width="${W}" height="${H}" rx="14" fill="#f1eeea"/>
     <g fill="none" stroke="#e4ddd5" stroke-width="1">${contours}</g>
     <path d="M -10 380 C 120 350, 200 400, 330 370 S 520 330, 620 360" fill="none" stroke="#bfdcf3" stroke-width="5" stroke-linecap="round"/>
@@ -185,7 +185,7 @@ export function routeExplorer(el, { initial = '21k', event = {} } = {}) {
         <div class="rt-chart-head"><span class="label muted">Elevation profile</span><span class="small muted">Hover or tap to explore</span></div>
         <div class="rt-chart-box"><div class="rt-tip" hidden></div></div>
       </div>
-      <p class="small muted rt-note"><span class="sample">Sample route</span> ${event.routeConfirmed ? 'The map shape and elevation are still illustrative – the official route map will follow.' : 'Course shape, elevation, and the start and finish locations are illustrative. The start, finish and running route will be published once the organisers confirm them.'}</p>`;
+      <p class="small muted rt-note"><span class="sample">Indicative route</span> ${event.routeConfirmed ? 'The map shape and elevation are indicative – the official route map will follow.' : 'Course shape, elevation, and the start and finish locations are indicative. The official start, finish and route will be published closer to race day.'}</p>`;
     el.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => draw(b.dataset.k)));
     drawChart(el, r);
   };

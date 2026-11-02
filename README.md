@@ -1,4 +1,4 @@
-# Run Wild Melorane – event site (proof of concept)
+# Run Wild Melorane – event site
 
 Event site for **Run Wild Melorane**, an ERP (Elephants, Rhinos & People) initiative at Melorane ERP Game Reserve on **17 April 2027** (admins can change the date under Settings): a 21 km trail run and 5 km run/walk that helps establish a local running community.
 
