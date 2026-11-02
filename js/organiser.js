@@ -117,7 +117,7 @@ function entriesStatus(D) {
   const R = D.settings.registration;
   const open = registrationOpen(D.settings, D.now);
   const when = opensLabel(R);
-  if (R.mode === 'open') return `Race entries are <strong>open</strong> – switched on by hand (Settings → Race entries). Switch back to Automatic after testing.`;
+  if (R.mode === 'open') return `Race entries are <strong>open</strong> – switched on by hand (Settings → Race entries). Switch back to Automatic to follow the scheduled opening date.`;
   if (R.mode === 'closed') return `Race entries are <strong>closed</strong> – switched off by hand. Organisers can still register people.`;
   return open ? `Race entries are <strong>open</strong> – opened automatically on ${esc(when)}.`
     : `Race entries are <strong>closed</strong> – they open automatically on <strong>${esc(when)}</strong> (in ${Math.ceil((registrationOpensAt(R) - D.now) / 86400000)} days). Organisers can still register people.`;

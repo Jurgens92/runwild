@@ -80,9 +80,9 @@ export function defaultSettings() {
     },
     terms: {
       approved: false,
-      version: 'draft-0.1',
+      version: '0.1',
       text:
-        'DRAFT – awaiting organiser approval. Participants take part at their own risk, must follow marshal and ' +
+        'Participants take part at their own risk, must follow marshal and ' +
         'ranger instructions at all times, and must stay on the marked route inside the reserve.',
     },
     inviteCodes: [

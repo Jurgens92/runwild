@@ -45,8 +45,8 @@ async function router() {
   document.title = (app.dataset.title ? app.dataset.title + ' | ' : '') + 'Run Wild Melorane | ERP';
 }
 
-// On the live site the preview banner goes away.
-if (LIVE) $('#preview-strip')?.remove();
+// The preview banner is hidden by default; it only shows in the local preview (no API configured).
+if (LIVE) $('#preview-strip')?.remove(); else $('#preview-strip').hidden = false;
 
 window.addEventListener('hashchange', router);
 $('#menu-btn').addEventListener('click', () => {
@@ -341,7 +341,7 @@ async function lodge(el) {
         <p class="price">${rand(L.ratePerNight)} <span class="small muted" style="font-family:var(--body)">per person per night, all inclusive · minimum ${minN} nights</span></p>
         <p>Camping at the Melorane ERP Game Reserve combines the thrill of the great outdoors with knowing your stay supports the conservation of elephants and rhinos and community development. Nightly bonfires, star gazing and an off-the-grid bush experience – and you are already at the start line on race morning.</p>
         <div class="notice sun"><p><strong>Minimum stay: ${minN} nights.</strong> Canvas Lodge bookings must be for at least ${minN} nights.</p></div>
-        <p class="small muted">Inclusions and cancellation terms ${tbc()} – we only publish what the organisers have confirmed.</p>
+        <p class="small muted">Inclusions and cancellation terms: ${tbc()}</p>
 
         <h3 style="margin-top:28px">How payment works</h3>
         <ul class="ticks">
@@ -351,11 +351,11 @@ async function lodge(el) {
           <li>The deposit is for accommodation only. It is never applied to the entry fee, socks, sponsorships or donations, which are shown and paid separately.</li>
           <li>A request is <strong>not a confirmed booking</strong> until availability has been checked and the deposit has been verified.</li>
         </ul>
-        <div class="notice warn"><p><strong>Booking after ${formatDate(L.balanceDueDate)}?</strong> ${L.latePolicy.confirmed ? esc(L.latePolicy.text) : 'Late-booking terms are still to be confirmed by the organisers. We will not ask you to meet a deadline that has already passed.'}</p></div>
+        <div class="notice warn"><p><strong>Booking after ${formatDate(L.balanceDueDate)}?</strong> ${L.latePolicy.confirmed ? esc(L.latePolicy.text) : 'Late-booking terms will be confirmed. We will not ask you to meet a deadline that has already passed.'}</p></div>
       </div>
       <div class="card">
         <h3>Work out your stay</h3>
-        <p class="small muted">Open nights: ${nights.map((n) => formatDate(n.date) + (n.available ? '' : ' (full)')).join(', ')} ${L.inventoryConfirmed ? '' : '<span class="sample">Sample dates</span>'}</p>
+        <p class="small muted">Open nights: ${nights.map((n) => formatDate(n.date) + (n.available ? '' : ' (full)')).join(', ')} ${L.inventoryConfirmed ? '' : '<span class="sample">Provisional dates</span>'}</p>
         <div class="row2">
           <div class="field"><label for="la">Arrive</label><select id="la">${opt(dates[0])}</select></div>
           <div class="field"><label for="ld">Depart</label><select id="ld">${opt(dates[Math.min(minN, dates.length - 1)])}</select></div>
@@ -636,7 +636,7 @@ async function info(el) {
       <h2 style="margin-top:56px">The fine print</h2>
       <div class="faq">
         <details id="terms"><summary>Event terms</summary><div>
-          ${s.terms.approved ? '' : '<div class="notice warn"><p>These terms are a draft and still need organiser approval before registration opens.</p></div>'}
+          ${s.terms.approved ? '' : '<div class="notice warn"><p>These terms are provisional. The final event terms will be published before race entries open.</p></div>'}
           <p>${esc(s.terms.text)}</p>
           <p class="small">Version ${esc(s.terms.version)}</p></div></details>
         <details id="privacy"><summary>Privacy notice</summary><div>
