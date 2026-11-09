@@ -8,7 +8,7 @@
 //     Postgres, and the lock is that row's lock (SELECT ... FOR UPDATE), held for the whole request.
 
 import {
-  CATEGORIES, DISTANCES, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
+  CATEGORIES, DISTANCES, WATER_POINTS, waterPointLabel, poolUsage, occupiesPlace, isReservationLive, entryFee, sumPaid, makeRef, uid,
   normaliseMobile, validMobile, validEmail, nightsBetween, stayNights, lodgeQuote, lodgeBalanceDue, todayJHB,
   formatDate, codeHasUses, needsOrganiserCheck, SHIRT_SIZES, SOCK_SIZES, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES, isPersonalEmail, emailDomain,
 } from './core.js';
@@ -238,7 +238,7 @@ export class Backend {
     for (const sp of s.sponsorships) {
       if (sp.status === 'reserved' && sp.expiresAt && sp.expiresAt <= now) {
         sp.status = 'expired';
-        this._audit(s, 'system', 'sponsorship.expired', sp.ref, 'Water Point ' + sp.point + ' hold expired');
+        this._audit(s, 'system', 'sponsorship.expired', sp.ref, waterPointLabel(sp.point) + ' hold expired');
       }
     }
     s.sessions = (s.sessions || []).filter((x) => x.expiresAt > now);
@@ -362,10 +362,10 @@ export class Backend {
   _waterPointStatus(s, withPrivate) {
     const now = this.now();
     const out = [];
-    for (let p = 1; p <= 5; p++) {
+    for (const p of Object.keys(WATER_POINTS).map(Number)) {
       const active = s.sponsorships.find((x) => x.point === p && (x.status === 'confirmed' || (x.status === 'reserved' && (!x.expiresAt || x.expiresAt > now))));
       const status = !active ? 'available' : active.status === 'confirmed' ? 'sponsored' : 'reserved';
-      const row = { point: p, status };
+      const row = { point: p, name: WATER_POINTS[p], status };
       if (active && active.status === 'confirmed' && active.displayConsent) { row.sponsorName = active.name; row.logo = active.logo || ''; row.website = active.website || ''; }
       if (withPrivate && active) row.sponsorshipId = active.id;
       out.push(row);
@@ -874,7 +874,7 @@ export class Backend {
       if (clash) { sp.attention = 'Payment received after hold expired and the point was taken. Refund or offer another point.'; return; }
       sp.status = 'confirmed';
       sp.expiresAt = null;
-      this._audit(s, 'system', 'sponsorship.confirmed', sp.ref, 'Water Point ' + sp.point);
+      this._audit(s, 'system', 'sponsorship.confirmed', sp.ref, waterPointLabel(sp.point));
     } else if (ch.kind === 'donation') {
       const c = s.contributions.find((x) => x.id === ch.ownerId);
       if (c) c.status = 'paid';
@@ -891,7 +891,7 @@ export class Backend {
       }
       const e = {};
       const point = Number(input.point);
-      if (!(point >= 1 && point <= 5)) e.point = 'Choose a water point.';
+      if (!WATER_POINTS[point]) e.point = 'Choose a water point.';
       if (!input.name || input.name.trim().length < 2) e.name = 'Enter the individual or company name.';
       if (!input.contactPerson) e.contactPerson = 'Enter a contact person.';
       if (!validEmail(input.email)) e.email = 'Enter a valid email address.';
@@ -900,7 +900,7 @@ export class Backend {
       if (input.website && !/^https?:\/\//i.test(input.website)) e.website = 'Start the website with https://';
       if (Object.keys(e).length) throw new ValidationError('Please check the highlighted fields.', e);
       const taken = this._waterPointStatus(s, false).find((w) => w.point === point);
-      if (taken.status !== 'available') throw new ValidationError('Water Point ' + point + ' has just been ' + (taken.status === 'sponsored' ? 'sponsored' : 'reserved') + ' by someone else. Please choose another point.', { point: 'No longer available.' });
+      if (taken.status !== 'available') throw new ValidationError(waterPointLabel(point) + ' has just been ' + (taken.status === 'sponsored' ? 'sponsored' : 'reserved') + ' by someone else. Please choose another point.', { point: 'No longer available.' });
       const sp = {
         id: uid(), ref: this._uniqueRef(s, 'RWM-WS'), clientRequestId: input.clientRequestId || uid(), point,
         name: input.name.trim(), contactPerson: input.contactPerson.trim(), email: input.email.trim(), phone: input.phone,
@@ -908,16 +908,16 @@ export class Backend {
         status: 'reserved', createdAt: this.now(), expiresAt: this.now() + s.settings.waterPoints.holdHours * HOUR,
       };
       s.sponsorships.push(sp);
-      this._charge(s, { kind: 'sponsorship', ownerType: 'sponsorship', ownerId: sp.id, label: 'Water Point ' + point + ' sponsorship', amount: s.settings.waterPoints.price, ref: sp.ref });
-      this._audit(s, 'public', 'sponsorship.reserved', sp.ref, 'Water Point ' + point);
-      this._queueMessage(s, { to: sp.email, channel: 'email', subject: 'Water Point ' + point + ' – ' + sp.ref, body: 'Thank you. Water Point ' + point + ' is held for you until payment is verified.', ref: sp.ref });
+      this._charge(s, { kind: 'sponsorship', ownerType: 'sponsorship', ownerId: sp.id, label: waterPointLabel(point) + ' sponsorship', amount: s.settings.waterPoints.price, ref: sp.ref });
+      this._audit(s, 'public', 'sponsorship.reserved', sp.ref, waterPointLabel(point));
+      this._queueMessage(s, { to: sp.email, channel: 'email', subject: waterPointLabel(point) + ' – ' + sp.ref, body: 'Thank you. The ' + waterPointLabel(point) + ' is held for you until payment is verified.', ref: sp.ref });
       return this._sponsorshipView(s, sp);
     });
   }
 
   _sponsorshipView(s, sp) {
     const ch = s.charges.find((c) => c.ownerId === sp.id);
-    return { ref: sp.ref, point: sp.point, status: sp.status, expiresAt: sp.expiresAt, name: sp.name, charge: ch ? this._chargeView(s, ch) : null };
+    return { ref: sp.ref, point: sp.point, pointName: WATER_POINTS[sp.point] || '', status: sp.status, expiresAt: sp.expiresAt, name: sp.name, charge: ch ? this._chargeView(s, ch) : null };
   }
 
   // ---------- donations ----------
@@ -1262,7 +1262,7 @@ export class Backend {
           const sp = s.sponsorships.find((x) => x.id === args.id);
           if (!sp) throw new ValidationError('Sponsorship not found.');
           sp.status = 'cancelled'; sp.expiresAt = null;
-          this._audit(s, who, 'sponsorship.cancelled', sp.ref, 'Water Point ' + sp.point);
+          this._audit(s, who, 'sponsorship.cancelled', sp.ref, waterPointLabel(sp.point));
           return null;
         }
         case 'recordPurchase': {

@@ -1,5 +1,5 @@
 import { api, LIVE, esc, $, $$, toast, statusPill, sampleBadge, rand, formatDate, formatDateTime, tbc, showErrors, clearErrors } from './ui.js';
-import { CATEGORIES, DISTANCES, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES } from './core.js';
+import { CATEGORIES, DISTANCES, DISTANCE_SHORT, waterPointLabel, POOLS, SHIRT_SIZES, SOCK_SIZES, isReservationLive, registrationOpen, registrationOpensAt, opensLabel, ENTRY_MODES } from './core.js';
 import { AuthError, ROLES } from './backend.js';
 import { scenarios } from '../tests/scenarios.js';
 import { bindPdfButton, emailConfirmation } from './pdf.js';
@@ -241,7 +241,7 @@ const VIEWS = {
       </div>
       ${att.length ? `<h3>Needs attention</h3>${table(['Record', 'Issue', ''], att.map(([k, id, ref, msg]) => `<tr><td class="ref">${esc(ref || '')}</td><td>${esc(msg)}</td><td><button class="btn small plain" data-clear="${k}|${id}">Mark resolved</button></td></tr>`))}` : ''}
       <h3>Participants by category and distance</h3>
-      <div class="table-wrap"><table class="data"><thead><tr><th>Category</th><th class="num">21 km confirmed</th><th class="num">21 km reserved</th><th class="num">5 km confirmed</th><th class="num">5 km reserved</th><th class="num">Waitlisted</th><th class="num">Awaiting verification</th></tr></thead><tbody>${byCat.join('')}</tbody></table></div>
+      <div class="table-wrap"><table class="data"><thead><tr><th>Category</th><th class="num">20 km confirmed</th><th class="num">20 km reserved</th><th class="num">11 km confirmed</th><th class="num">11 km reserved</th><th class="num">Waitlisted</th><th class="num">Awaiting verification</th></tr></thead><tbody>${byCat.join('')}</tbody></table></div>
       <h3>Money (tracked separately)</h3>
       <div class="table-wrap"><table class="data"><thead><tr><th>Stream</th><th class="num">Billed</th><th class="num">Received</th><th class="num">Outstanding</th></tr></thead><tbody>${money.join('')}</tbody></table></div>
       <p class="small muted">Billed amounts exclude waitlisted entries and entries whose fee is not yet confirmed.</p>`;
@@ -291,7 +291,7 @@ const VIEWS = {
         && (!q || (r.fullName + r.ref + r.mobile).toLowerCase().includes(q)));
       $('#list').innerHTML = `<p class="small muted">${rs.length} shown</p>` + table(['Ref', 'Name', 'Category', 'Distance', 'Status', '#Entry outstanding', ''], rs.map((r) => {
         const ch = entryCharge(D, r);
-        return `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${r.distance === '21k' ? '21 km' : '5 km'}</td><td>${regStatus(D, r)}</td>
+        return `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${DISTANCE_SHORT[r.distance] || r.distance}</td><td>${regStatus(D, r)}</td>
           <td class="num">${ch ? rand(ch.outstanding) : r.holdReason === 'fee_unconfirmed' ? tbc('Fee TBC') : '—'}</td>
           <td><div class="btn-row"><button class="btn small plain" data-view="${r.id}">View</button>${r.status === 'waitlisted' ? `<button class="btn small" data-offer="${r.id}">Offer place</button>` : ''}${r.status !== 'cancelled' ? `<button class="btn small danger" data-cancel="${r.id}">Cancel</button>` : ''}${D.me.role === 'admin' ? `<button class="btn small plain" data-del="${r.id}" title="Permanently remove, e.g. a test entry">Delete</button>` : ''}</div></td></tr>`;
       }));
@@ -312,7 +312,7 @@ const VIEWS = {
     const checkedCats = (D.settings.verifyCategories || []).map(catLabel).join(' and ').toLowerCase().replace('melorane', 'Melorane');
     m.innerHTML = `<h2>Verification</h2>
       <p class="muted">${checkedCats ? `Every ${esc(checkedCats)} entry is free and waits here for an organiser to check it. Their place is held meanwhile (or they are on the waitlist if the pool was full). <strong>Verify</strong> confirms the entry; <strong>Decline</strong> cancels it and frees the place.` : ''} Group employees without a valid invitation code also wait here, with no place held until verified.</p>
-      ${table(['Ref', 'Name', 'Category', 'Distance', 'Mobile', 'Employer', 'Status', 'Registered', ''], rs.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${r.distance === '5k' ? '5 km' : '21 km'}</td><td>${esc(r.mobile)}</td><td>${esc(r.employer || '—')}${r.inviteCodeTried ? '<br><span class="small muted">code given: ' + esc(r.inviteCodeTried) + '</span>' : ''}</td><td>${statusPill(r.status, r.status === 'reserved' ? 'Place held' : undefined)}</td><td>${formatDateTime(r.createdAt)}</td>
+      ${table(['Ref', 'Name', 'Category', 'Distance', 'Mobile', 'Employer', 'Status', 'Registered', ''], rs.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${DISTANCE_SHORT[r.distance] || r.distance}</td><td>${esc(r.mobile)}</td><td>${esc(r.employer || '—')}${r.inviteCodeTried ? '<br><span class="small muted">code given: ' + esc(r.inviteCodeTried) + '</span>' : ''}</td><td>${statusPill(r.status, r.status === 'reserved' ? 'Place held' : undefined)}</td><td>${formatDateTime(r.createdAt)}</td>
         <td><div class="btn-row"><button class="btn small" data-ok="${r.id}">Verify</button>${CATEGORIES[r.category].employee ? `<button class="btn small plain" data-other="${r.id}">Move to “Other”</button>` : ''}<button class="btn small danger" data-no="${r.id}">Decline</button></div></td></tr>`), 'No entries are waiting for verification.')}
       <h3>Recently verified</h3>
       ${table(['Ref', 'Name', 'Category', 'Verification', 'By'], recent.map((r) => `<tr><td class="ref">${esc(r.ref)}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(catLabel(r.category))}</td><td>${statusPill(r.verification)}</td><td>${esc(r.verifiedBy || '')}</td></tr>`))}
@@ -397,7 +397,7 @@ const VIEWS = {
       ${table(['Point', 'Status', 'Sponsor', 'Contact', 'Display consent', '#Paid', ''], D.waterPointStatus.map((w) => {
         const sp = w.sponsorshipId && D.sponsorships.find((x) => x.id === w.sponsorshipId);
         const ch = sp && D.chargeViews.find((c) => c.ownerId === sp.id);
-        return `<tr><td><strong>Water Point ${w.point}</strong></td><td>${statusPill(w.status)}${sp && sp.expiresAt ? `<br><span class="small muted">hold until ${formatDateTime(sp.expiresAt)}</span>` : ''}</td>
+        return `<tr><td><strong>${esc(waterPointLabel(w.point))}</strong></td><td>${statusPill(w.status)}${sp && sp.expiresAt ? `<br><span class="small muted">hold until ${formatDateTime(sp.expiresAt)}</span>` : ''}</td>
           <td>${sp ? esc(sp.name) + sampleBadge(sp) + `<br><span class="ref small">${esc(sp.ref)}</span>` : '—'}${sp && sp.logo ? `<img src="${esc(sp.logo)}" alt="" style="max-height:32px;margin-top:4px">` : ''}</td>
           <td class="small">${sp ? esc(sp.contactPerson) + '<br>' + esc(sp.email) + '<br>' + esc(sp.phone) : ''}</td><td>${sp ? (sp.displayConsent ? 'Yes' : 'No') : ''}</td>
           <td class="num">${ch ? rand(ch.paid) + ' / ' + rand(ch.amount) : ''}</td><td>${sp ? `<button class="btn small danger" data-cx="${sp.id}">Cancel</button>` : ''}</td></tr>`;
@@ -405,7 +405,7 @@ const VIEWS = {
       <h3>All sponsorship records</h3>
       ${table(['Ref', 'Point', 'Sponsor', 'Status', 'Created'], D.sponsorships.map((s) => `<tr><td class="ref">${esc(s.ref)}</td><td>${s.point}</td><td>${esc(s.name)}${sampleBadge(s)}${s.attention ? `<br><span class="attention">${esc(s.attention)}</span>` : ''}</td><td>${statusPill(s.status)}</td><td>${formatDateTime(s.createdAt)}</td></tr>`))}`;
     $$('[data-cx]', m).forEach((b) => b.addEventListener('click', () => confirm('Cancel this sponsorship and free the water point?') && act('cancelSponsorship', { id: b.dataset.cx })));
-    $('#csv').addEventListener('click', () => csvDownload('water-points', ['Reference', 'Point', 'Sponsor', 'Contact', 'Email', 'Phone', 'Website', 'Billing', 'Display consent', 'Status'], D.sponsorships.map((s) => [s.ref, s.point, s.name, s.contactPerson, s.email, s.phone, s.website, s.billing, s.displayConsent ? 'yes' : 'no', s.status])));
+    $('#csv').addEventListener('click', () => csvDownload('water-points', ['Reference', 'Point', 'Sponsor', 'Contact', 'Email', 'Phone', 'Website', 'Billing', 'Display consent', 'Status'], D.sponsorships.map((s) => [s.ref, waterPointLabel(s.point), s.name, s.contactPerson, s.email, s.phone, s.website, s.billing, s.displayConsent ? 'yes' : 'no', s.status])));
   },
 
   shirts(m, D) {
@@ -501,8 +501,8 @@ const VIEWS = {
       ${table(['Name', 'Distance', 'Status', ''], comm.map((r) => `<tr><td>${esc(r.fullName)}${sampleBadge(r)}</td><td>${esc(DISTANCES[r.distance])}</td><td>${statusPill(r.buddy.status)}</td><td><button class="btn small danger" data-st="withdrawn|${r.id}">Withdraw</button></td></tr>`), 'Nobody has asked yet.')}
       <h3>Propose a match</h3>
       <form id="pm" class="card" style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">
-        <div><label>Volunteer</label><select name="volunteerId"><option value="">Choose…</option>${vols.filter((r) => r.buddy.status === 'awaiting_match' && free(r)).map((r) => `<option value="${r.id}">${esc(r.fullName)} – ${r.buddy.preferredDistance === '5k' ? '5 km' : '21 km'}</option>`).join('')}</select></div>
-        <div><label>Community runner</label><select name="communityId"><option value="">Choose…</option>${comm.filter((r) => free(r)).map((r) => `<option value="${r.id}">${esc(r.fullName)} – ${r.distance === '5k' ? '5 km' : '21 km'}</option>`).join('')}</select></div>
+        <div><label>Volunteer</label><select name="volunteerId"><option value="">Choose…</option>${vols.filter((r) => r.buddy.status === 'awaiting_match' && free(r)).map((r) => `<option value="${r.id}">${esc(r.fullName)} – ${DISTANCE_SHORT[r.buddy.preferredDistance] || DISTANCE_SHORT[r.distance]}</option>`).join('')}</select></div>
+        <div><label>Community runner</label><select name="communityId"><option value="">Choose…</option>${comm.filter((r) => free(r)).map((r) => `<option value="${r.id}">${esc(r.fullName)} – ${DISTANCE_SHORT[r.distance] || r.distance}</option>`).join('')}</select></div>
         <button class="btn small" type="submit">Propose</button>
       </form>
       <h3>Matches</h3>
@@ -523,7 +523,7 @@ const VIEWS = {
     const ev = D.settings.event;
     m.innerHTML = `<div class="toolbar"><h2 style="margin:0">Community pickup list</h2><div class="btn-row"><button class="btn small plain" onclick="window.print()">Print</button><button class="btn small" id="csv">CSV</button></div></div>
       <p><strong>${formatDate(ev.date)} · ${esc(ev.pickupTime)} · ${esc(ev.pickupPlace)}</strong> ${ev.pickupAddressConfirmed && ev.pickupFullAddress ? '· ' + esc(ev.pickupFullAddress) : tbc('Full address to be confirmed')}</p>
-      ${table(['#', 'Name', 'Ref', 'Mobile', 'Emergency contact', 'Distance', 'Status', 'On bus'], rs.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td class="ref">${esc(r.ref)}</td><td>${esc(r.mobile)}</td><td>${esc(r.emergencyName)} · ${esc(r.emergencyMobile)}</td><td>${r.distance === '5k' ? '5 km' : '21 km'}</td><td>${statusPill(r.status)}</td><td>☐</td></tr>`), 'No community participants yet.')}`;
+      ${table(['#', 'Name', 'Ref', 'Mobile', 'Emergency contact', 'Distance', 'Status', 'On bus'], rs.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.fullName)}${sampleBadge(r)}</td><td class="ref">${esc(r.ref)}</td><td>${esc(r.mobile)}</td><td>${esc(r.emergencyName)} · ${esc(r.emergencyMobile)}</td><td>${DISTANCE_SHORT[r.distance] || r.distance}</td><td>${statusPill(r.status)}</td><td>☐</td></tr>`), 'No community participants yet.')}`;
     $('#csv').addEventListener('click', () => csvDownload('pickup-list', ['Name', 'Reference', 'Mobile', 'Emergency name', 'Emergency number', 'Distance', 'Status'], rs.map((r) => [r.fullName, r.ref, r.mobile, r.emergencyName, r.emergencyMobile, DISTANCES[r.distance], r.status])));
   },
 

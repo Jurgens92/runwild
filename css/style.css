@@ -274,7 +274,7 @@ fieldset { border: 0; padding: 0; margin: 0 0 22px; }
 
 /* Water points */
 .wp { border: 1px solid var(--line); background: #fff; border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; gap: 8px; }
-.wp .num { font-family: var(--display); font-size: 2.4rem; color: var(--navy); line-height: 1; }
+.wp .num { font-family: var(--display); font-size: 1.5rem; color: var(--navy); line-height: 1; }
 .wp.sponsored { background: var(--navy); color: #fff; border-color: var(--navy); }
 .wp.sponsored .num { color: #fff; }
 .wp.reserved { background: var(--sand); }
@@ -366,6 +366,8 @@ hr.rule { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
 .rt-map { width: 100%; height: auto; display: block; }
 .rt-map text { font-family: var(--label); }
 .rt-km { font-size: 10px; font-weight: 600; fill: var(--navy); }
+.rt-place text { font-size: 11px; font-weight: 600; fill: var(--navy); paint-order: stroke; stroke: #f1eeea; stroke-width: 3px; stroke-linejoin: round; }
+.rt-place.off text { fill: var(--muted); font-weight: 500; }
 .rt-tag { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; fill: var(--navy); }
 .rt-scale, .rt-north text { font-size: 11px; fill: var(--muted); }
 .rt-dot { transition: opacity .15s; pointer-events: none; }

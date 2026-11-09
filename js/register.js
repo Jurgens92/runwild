@@ -31,7 +31,7 @@ export async function renderRegister(el) {
     const closedTitle = s.registration.mode === 'closed' ? 'Race entries are not open yet' : 'Race entries open ' + esc(s.registration.opensLabel);
     el.innerHTML = `<section class="page-head"><div class="wrap narrow">
         <span class="eyebrow">Entries</span><h1>${closedTitle}</h1>
-        <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
+        <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>20 km trail · 11 km run/walk</span></div>
       </div></section>
       <section class="section tight"><div class="wrap narrow">
         <div class="card">
@@ -53,7 +53,7 @@ export async function renderRegister(el) {
 
   el.innerHTML = `<section class="page-head"><div class="wrap narrow">
       <span class="eyebrow">Entries</span><h1>Register</h1>
-      <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>21 km trail · 5 km run/walk</span></div>
+      <div class="reg-meta"><span>${formatDay(s.event.date)}</span><span>Melorane ERP Game Reserve</span><span>20 km trail · 11 km run/walk</span></div>
     </div></section>
     <section class="section tight"><div class="wrap narrow">
       ${token ? '<div class="notice sun"><p><strong>Organiser-assisted registration.</strong> You are signed in as an organiser, so this entry will be recorded as registered on someone’s behalf.</p></div>' : ''}
