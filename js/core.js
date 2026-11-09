@@ -31,10 +31,17 @@ export const POOLS = {
   community: { label: 'Community members' },
 };
 
+// The keys '21k' and '5k' are kept so saved entries keep working; the course is now 20 km and 11 km
+// (see js/route.js). DISTANCE_SHORT is for tight spaces such as table columns.
 export const DISTANCES = {
-  '21k': '21 km trail run',
-  '5k': '5 km run/walk',
+  '21k': '20 km trail run',
+  '5k': '11 km run/walk',
 };
+export const DISTANCE_SHORT = { '21k': '20 km', '5k': '11 km' };
+
+// The six water points, in the order runners on the 20 km reach them. Sponsorships store the number.
+export const WATER_POINTS = { 1: 'Impala', 2: 'Rhino', 3: 'Lookout Point', 4: 'Zebra', 5: 'Air Strip', 6: 'Eland' };
+export const waterPointLabel = (p) => (WATER_POINTS[p] ? WATER_POINTS[p] + ' water point' : 'Water Point ' + p);
 
 export const STATUS_LABELS = {
   draft: 'Draft',

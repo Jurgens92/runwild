@@ -1,5 +1,5 @@
 import { api, LIVE, esc, $, $$, toast, tbc, pageHead, messageNote, showErrors, clearErrors, formData, chargesTable, eftBlock, statusPill, rand, formatDate, formatDateTime } from './ui.js';
-import { CATEGORIES, DISTANCES, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain, formatDay } from './core.js';
+import { CATEGORIES, DISTANCES, DISTANCE_SHORT, WATER_POINTS, waterPointLabel, SOCK_SIZES, lodgeQuote, nightsBetween, uid, addDays, isPersonalEmail, emailDomain, formatDay } from './core.js';
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
 import { bindPdfButton } from './pdf.js';
@@ -98,8 +98,8 @@ function involvedTiles(s) {
     <a class="tile" href="#/water-points">
       <span class="icon">${ICONS.water}</span>
       <h3>Sponsor a water point</h3>
-      <p>Put your name or company on one of five water points along the route.</p>
-      <span class="meta">${open} of 5 still available · ${rand(s.waterPointSettings.price)} suggested</span>
+      <p>Put your name or company on one of six water points along the route.</p>
+      <span class="meta">${open} of ${s.waterPoints.length} still available · ${rand(s.waterPointSettings.price)} suggested</span>
       <span class="link-arrow">Choose a point</span>
     </a>
     <a class="tile" href="#/donate">
@@ -136,7 +136,7 @@ async function home(el) {
       <span class="eyebrow">ERP presents</span>
       <h1>Run Wild</h1>
       <p class="place">MELORANE</p>
-      <p class="when">${formatDay(ev.date)}<span>·</span>21 km trail run &amp; 5 km run/walk</p>
+      <p class="when">${formatDay(ev.date)}<span>·</span>${DISTANCES['21k']} &amp; ${DISTANCES['5k']}</p>
       <div class="btn-row">
         ${raceCta(s)}
         <a class="btn ghost" href="#/info">Race info</a>
@@ -150,7 +150,7 @@ async function home(el) {
     <div><span class="label">Date</span><strong>${formatDate(ev.date)}</strong></div>
     <div><span class="label">Start</span><strong>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early morning'}</strong></div>
     <div><span class="label">Venue</span><strong>Melorane ERP Game Reserve</strong></div>
-    <div><span class="label">Distances</span><strong>21 km · 5 km</strong></div>
+    <div><span class="label">Distances</span><strong>20 km · 11 km</strong></div>
   </div>
 
   ${s.launch.open ? `<section class="launch-band">
@@ -179,7 +179,7 @@ async function home(el) {
       <div class="section-head center">
         <span class="eyebrow">The route</span>
         <h2>Two ways to run wild</h2>
-        <p class="lead">A 21 km trail through the reserve, or a 5 km run/walk at your own pace. The start and finish locations and the exact route are still being confirmed.</p>
+        <p class="lead">A 20 km trail loop through the reserve past Impala, Rhino, the Lookout, Zebra, the air strip and Eland – or an 11 km run/walk out to the Lookout and back.</p>
       </div>
       <div class="rt" id="route"></div>
     </div>
@@ -214,7 +214,7 @@ async function home(el) {
       <ol class="timeline">
         <li><span class="t">${esc(ev.pickupTime)}</span><span><strong>Community pickup</strong>${esc(ev.pickupPlace)}</span></li>
         <li><span class="t">Early</span><span><strong>Arrive at the reserve</strong>Everyone else makes their own way there</span></li>
-        <li><span class="t">${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Sunrise'}</span><span><strong>Race start</strong>${ev.startTime && ev.startTimeConfirmed ? '21 km and 5 km' : 'Exact time to be confirmed'}</span></li>
+        <li><span class="t">${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Sunrise'}</span><span><strong>Race start</strong>${ev.startTime && ev.startTimeConfirmed ? '20 km and 11 km' : 'Exact time to be confirmed'}</span></li>
         <li><span class="t">Finish</span><span><strong>Celebrate together</strong>${ev.routeConfirmed && ev.finishLocation ? esc(ev.finishLocation) : 'Finish location to be confirmed'}</span></li>
       </ol>
     </div>
@@ -393,14 +393,14 @@ async function waterPoints(el, [preselect]) {
   const resp = { tbc: 'To be confirmed', organiser: 'Organiser', sponsor: 'Sponsor' };
   const requestId = uid();
   el.innerHTML = `
-  ${pageHead('Sponsorship', 'Sponsor a water point', 'Five water points keep runners going on the trail. Sponsor one in your name or your company’s.', BACK_INVOLVED)}
+  ${pageHead('Sponsorship', 'Sponsor a water point', 'Six water points – Impala, Rhino, Lookout Point, Zebra, Air Strip and Eland – keep runners going on the trail. Sponsor one in your name or your company’s.', BACK_INVOLVED)}
   <section class="section">
     <div class="wrap">
-      <div class="grid five">
+      <div class="grid three">
         ${s.waterPoints.map((w) => `
           <div class="wp ${w.status}">
-            <span class="label">Water point</span>
-            <span class="num">${w.point}</span>
+            <span class="label">Water point ${w.point}</span>
+            <span class="num">${esc(w.name || WATER_POINTS[w.point] || w.point)}</span>
             ${statusPill(w.status, w.status === 'available' ? 'Available' : w.status === 'reserved' ? 'Temporarily reserved' : 'Sponsored')}
             ${w.sponsorName ? `<span class="small">${esc(w.sponsorName)}</span>` : ''}
             ${w.status === 'available' ? `<button class="btn small" data-pick="${w.point}">Sponsor this point</button>` : ''}
@@ -425,7 +425,7 @@ async function waterPoints(el, [preselect]) {
           <div class="notice bad form-error" hidden></div>
           <div class="field" data-field="point"><label for="point">Water point</label>
             <select id="point" name="point"><option value="">Choose…</option>
-            ${s.waterPoints.map((w) => `<option value="${w.point}" ${w.status !== 'available' ? 'disabled' : ''} ${String(w.point) === preselect ? 'selected' : ''}>Water Point ${w.point}${w.status !== 'available' ? ' – unavailable' : ''}</option>`).join('')}
+            ${s.waterPoints.map((w) => `<option value="${w.point}" ${w.status !== 'available' ? 'disabled' : ''} ${String(w.point) === preselect ? 'selected' : ''}>${esc(waterPointLabel(w.point))}${w.status !== 'available' ? ' – unavailable' : ''}</option>`).join('')}
             </select></div>
           <div class="field" data-field="name"><label for="name">Individual or company name</label><input id="name" name="name" type="text" autocomplete="organization"></div>
           <div class="field" data-field="contactPerson"><label for="cp">Contact person</label><input id="cp" name="contactPerson" type="text" autocomplete="name"></div>
@@ -461,7 +461,7 @@ async function waterPoints(el, [preselect]) {
     try {
       const r = await api.submitSponsorship(d);
       const sum = await api.publicSummary();
-      el.innerHTML = `${pageHead('Sponsorship', 'Water Point ' + r.point + ' is reserved for you')}
+      el.innerHTML = `${pageHead('Sponsorship', 'The ' + waterPointLabel(r.point) + ' is reserved for you')}
       <section class="section"><div class="wrap narrow">
         <div class="notice sun"><p>Reference <span class="ref">${esc(r.ref)}</span>. The point is held until <strong>${formatDateTime(r.expiresAt)}</strong>. It becomes a confirmed sponsorship once payment has been verified.</p></div>
         ${chargesTable([r.charge], { payments: sum.payments })}
@@ -612,7 +612,7 @@ async function info(el) {
     ['When can I enter the race?', `${opensText(s)}. Until then race entries are closed. You can already <a href="#/launch">register for the launch event</a> – that is a separate event and does not enter you for the race.`],
     ['What is the launch event?', `${esc(s.launch.description)} It takes place at ${esc(s.launch.venue)} at ${esc(s.launch.time)}${s.launch.timeConfirmed ? '' : ' (provisional)'}; the date is ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'still to be confirmed'}. Anyone can <a href="#/launch">register</a>.`],
     ['When and where is the race?', `${formatDay(ev.date)} at ${esc(ev.venue)}. ${startLine(ev)}. Plan to arrive early – the start is early in the morning.`],
-    ['Which distances are there?', '<strong>21 km trail run</strong> or <strong>5 km run/walk</strong>. You choose one when you register. Both distances use the same pool of places for your category.'],
+    ['Which distances are there?', '<strong>20 km trail run</strong> or <strong>11 km run/walk</strong>. You choose one when you register. Both distances use the same pool of places for your category.'],
     ['Where do we start and finish, and what is the route?', `${ev.routeConfirmed ? `Start: ${esc(ev.startLocation)}. Finish: ${esc(ev.finishLocation)}. ${esc(ev.routeDescription)}` : 'The start and finish locations and the running route are still being confirmed by the organisers. We will publish them here and on the route map as soon as they are final.'}`],
     ['How many places are there?', `Group employees and other participants share one pool of ${s.pools.combined.limit} places. Community members have ${s.pools.community.limit} places. Melorane employees have unlimited entries and do not use either pool. When a pool is full you can join its waitlist – no payment is taken for a waitlist place.`],
     ['How much is the entry fee?', 'The entry fee depends on your category. It is shown as soon as you choose your category on the registration form, before you give any details. We will not ask for payment for a category whose fee has not been confirmed.'],
@@ -651,7 +651,7 @@ async function info(el) {
           <tr><th>Date</th><td>${formatDay(ev.date)}</td></tr>
           <tr><th>Start</th><td>${ev.startTime && ev.startTimeConfirmed ? esc(ev.startTime) : 'Early start – time to be confirmed'}</td></tr>
           <tr><th>Venue</th><td>${esc(ev.venue)}</td></tr>
-          <tr><th>Distances</th><td>21 km trail · 5 km run/walk</td></tr>
+          <tr><th>Distances</th><td>20 km trail · 11 km run/walk</td></tr>
           ${routeFacts(ev, 'rows')}
           <tr><th>Community pickup</th><td>${esc(ev.pickupPlace)}, ${esc(ev.pickupTime)}</td></tr>
           <tr><th>Race entries</th><td>${s.registration.open ? 'Open' : s.registration.mode === 'closed' ? 'Not open yet' : 'Open ' + esc(s.registration.opensLabel)}</td></tr>
@@ -758,7 +758,7 @@ function renderMine(box, r, creds, reload) {
       ${r.buddy.optIn ? `<p>You are in the programme (${esc((r.buddy.status || '').replace(/_/g, ' '))}).</p><button class="btn small danger" id="b-out">Withdraw from Run Buddy</button>`
         : r.category === 'community' ? '<button class="btn small" id="b-in">I would like a Run Buddy</button>'
           : `<details><summary>Volunteer as a Run Buddy</summary><div><form id="bf" novalidate>
-            <div class="field"><label>Preferred distance</label><select name="preferredDistance"><option value="21k">21 km</option><option value="5k">5 km</option></select></div>
+            <div class="field"><label>Preferred distance</label><select name="preferredDistance"><option value="21k">${DISTANCE_SHORT['21k']}</option><option value="5k">${DISTANCE_SHORT['5k']}</option></select></div>
             <div class="field"><label>Running experience</label><input name="experience" type="text"></div>
             <div class="field"><label>Availability</label><input name="availability" type="text" placeholder="e.g. weekday evenings"></div>
             <div class="field"><label>Preferred contact method</label><select name="contactMethod"><option>WhatsApp</option><option>Phone</option><option>Email</option></select></div>

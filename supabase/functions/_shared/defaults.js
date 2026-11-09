@@ -254,8 +254,8 @@ export function sampleData(now, settings) {
     { id: 'sample-sp-1', sample: true, ref: 'RWM-WS001', point: 1, name: 'Sample Engineering (Pty) Ltd', contactPerson: 'Sample contact', email: 'sponsor@example.org', phone: '0110000000', website: '', logo: '', billing: '', displayConsent: true, status: 'confirmed', createdAt: ts, expiresAt: null },
     { id: 'sample-sp-3', sample: true, ref: 'RWM-WS003', point: 3, name: 'Sample Family Trust', contactPerson: 'Sample contact', email: 'trust@example.org', phone: '0120000000', website: '', logo: '', billing: '', displayConsent: false, status: 'reserved', createdAt: now - 3600000, expiresAt: now + 47 * 3600000 },
   ];
-  charges.push({ id: 'sample-ch-sp-1', kind: 'sponsorship', ownerType: 'sponsorship', ownerId: 'sample-sp-1', label: 'Water Point 1 sponsorship', amount: settings.waterPoints.price, ref: 'RWM-WS001', createdAt: ts, sample: true });
-  charges.push({ id: 'sample-ch-sp-3', kind: 'sponsorship', ownerType: 'sponsorship', ownerId: 'sample-sp-3', label: 'Water Point 3 sponsorship', amount: settings.waterPoints.price, ref: 'RWM-WS003', createdAt: now - 3600000, sample: true });
+  charges.push({ id: 'sample-ch-sp-1', kind: 'sponsorship', ownerType: 'sponsorship', ownerId: 'sample-sp-1', label: 'Impala water point sponsorship', amount: settings.waterPoints.price, ref: 'RWM-WS001', createdAt: ts, sample: true });
+  charges.push({ id: 'sample-ch-sp-3', kind: 'sponsorship', ownerType: 'sponsorship', ownerId: 'sample-sp-3', label: 'Lookout Point water point sponsorship', amount: settings.waterPoints.price, ref: 'RWM-WS003', createdAt: now - 3600000, sample: true });
   payments.push({ id: 'sample-pay-sp-1', chargeId: 'sample-ch-sp-1', amount: settings.waterPoints.price, method: 'eft', status: 'received', at: ts + 86400000, note: 'Sample payment', sample: true });
 
   // Donations: money only. ERP buys shoes and kit with it, records the purchases as stock and allocates them.

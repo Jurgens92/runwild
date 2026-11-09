@@ -1,12 +1,12 @@
 # Run Wild Melorane – event site
 
-Event site for **Run Wild Melorane**, an ERP (Elephants, Rhinos & People) initiative at Melorane ERP Game Reserve on **17 April 2027** (admins can change the date under Settings): a 21 km trail run and 5 km run/walk that helps establish a local running community.
+Event site for **Run Wild Melorane**, an ERP (Elephants, Rhinos & People) initiative at Melorane ERP Game Reserve on **17 April 2027** (admins can change the date under Settings): a 20 km trail run and 11 km run/walk that helps establish a local running community.
 
 It includes registration with capacity pools and a waitlist, RunWild shirt sizes for every entry, a socks add-on, unpaid-reservation expiry, Canvas Lodge requests and deposits (minimum two nights), water point sponsorship, monetary donations towards shoes and kit (R2,500 per runner, bought and handed out by ERP), running-kit requests from community members and Melorane employees, the Community Run Buddy programme, payment confirmation, and a private organiser dashboard with CSV exports and an audit trail.
 
 Race entries are **closed to the public until 1 February 2027** (set under Settings; organisers can still register people). Until then the site points visitors to the **launch event** at Hazeldean Valley Trails, Pretoria East (`#/launch`): anyone can register with name, surname and business email. Personal addresses such as Gmail or Outlook are flagged for the organisers but still accepted.
 
-Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): start and finish locations and the running route, the launch event date and time, and the sock price.
+Still to be confirmed by the organisers (shown as “To be confirmed” until set under Settings): the start and finish location names and the written route description, the launch event date and time, and the sock price.
 
 Community members and Melorane employees enter **free**. Every one of their entries is checked by an organiser (dashboard → **Verification**): the place is held meanwhile, **Verify** confirms it and **Decline** cancels it. Melorane employees no longer need an invitation code. Which categories are checked is set under Settings.
 
@@ -14,6 +14,8 @@ Community members and Melorane employees enter **free**. Every one of their entr
 |---|---|
 | Public pages | Home · Launch event · Race info & FAQ · Get involved (water points, donations, Run Buddy) · My entry · Register. Canvas Lodge is linked from Home and Race info. |
 | Organiser dashboard | `#/organiser` – sign in with an account an admin created (see **Going live** for the first admin) |
+
+**Course and water points.** The route map draws the GPS track in `js/route-data.js`. The 20 km trail run is the whole loop: start → Impala → Rhino → Lookout Point → back to Rhino → Zebra → Air Strip → Eland → Impala → finish (19.3 km by GPS). The 11 km run/walk goes start → Impala → Rhino → Lookout Point and back the same way (11.3 km). The six water points are at Impala, Rhino, Lookout Point, Zebra, Air Strip and Eland (numbered 1–6 in that order for sponsorships). Internally the distances keep the keys `21k` (20 km) and `5k` (11 km) so existing entries stay valid.
 
 **Entry confirmation PDF.** After registering, and on **My entry**, participants can download their confirmation as a PDF (as well as print it). In the dashboard, **Participants → View** has *Download confirmation PDF* and, when the entry has an email address, *Email PDF to participant*: it downloads the PDF and opens the organiser's email program with a ready-made message to the participant – attach the PDF and send. The PDF is drawn in the browser with [jsPDF](https://github.com/parallax/jsPDF) (MIT, bundled in `js/vendor/`, loaded only when needed), so nothing is uploaded anywhere.
 
@@ -109,7 +111,8 @@ The event site links back to www.erp.ngo in its footer and follows the ERP Brand
 
 The organiser dashboard has a live version of this list (**Launch checklist** tab).
 
-- [ ] Confirmed course for both distances (GPX track with elevation) to replace the sample route in `js/route.js`
+- [x] Course for both distances: the GPS track recorded on 7 November 2026 is in `js/route-data.js` (20 km = the whole loop; 11 km = start to the Lookout and back)
+- [ ] Replace the poster (`assets/poster.webp`), which still says 21 km and 5 km
 - [ ] Exact race start time (the site shows "Early start – exact time to be confirmed" until it is set)
 - [ ] Melorane employee entry fee and community member entry fee (no fee is assumed – both show "to be confirmed")
 - [ ] Turn off "accept registrations while a fee is unconfirmed"
