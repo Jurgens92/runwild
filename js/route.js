@@ -202,7 +202,7 @@ export function routeExplorer(el, { initial = '21k', event = {} } = {}) {
         <div class="rt-chart-head"><span class="label muted">Elevation profile</span><span class="small muted">Hover or tap to explore</span></div>
         <div class="rt-chart-box"><div class="rt-tip" hidden></div></div>
       </div>
-      <p class="small muted rt-note">Course recorded on the reserve with a GPS. Distances and heights come from that recording, so expect your own watch to differ a little. Arrows show the direction of travel.</p>`;
+      <p class="small muted rt-note">Course recorded on the reserve with a GPS, so expect your own watch to differ a little. ${key === '21k' ? 'Heights between Zebra and Air Strip are approximate. ' : ''}Arrows show the direction of travel.</p>`;
     el.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => draw(b.dataset.k)));
     drawChart(el, r);
   };
