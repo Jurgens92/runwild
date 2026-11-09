@@ -112,7 +112,7 @@ The event site links back to www.erp.ngo in its footer and follows the ERP Brand
 The organiser dashboard has a live version of this list (**Launch checklist** tab).
 
 - [x] Course for both distances: the GPS track recorded on 7 November 2026 is in `js/route-data.js` (20 km = the whole loop; 11 km = start to the Lookout and back)
-- [ ] Replace the poster (`assets/poster.webp`), which still says 21 km and 5 km
+- [x] Poster (`assets/poster.webp`) updated to say 20 km and 11 km
 - [ ] Exact race start time (the site shows "Early start – exact time to be confirmed" until it is set)
 - [ ] Melorane employee entry fee and community member entry fee (no fee is assumed – both show "to be confirmed")
 - [ ] Turn off "accept registrations while a fee is unconfirmed"
