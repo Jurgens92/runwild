@@ -6,6 +6,8 @@ import { TRACK, LOOKOUT_INDEX, WAYPOINTS } from './route-data.js';
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => 
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TBC = '<span class="tbc">To be confirmed</span>';
+// Organiser text with line breaks kept: each Enter starts a new line, a blank line leaves a gap.
+export const withBreaks = (v) => esc(v).trim().replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/\n/g, '<br>');
 
 // Start, finish and route as published by the organisers. Until they confirm them, each shows "To be confirmed".
 export function routeFacts(ev = {}, mode = 'list') {
@@ -13,7 +15,7 @@ export function routeFacts(ev = {}, mode = 'list') {
   const rows = [
     ['Start', ok && ev.startLocation ? esc(ev.startLocation) : TBC],
     ['Finish', ok && ev.finishLocation ? esc(ev.finishLocation) : TBC],
-    ['Route', ok && ev.routeDescription ? esc(ev.routeDescription) : TBC],
+    ['Route', ok && ev.routeDescription ? withBreaks(ev.routeDescription) : TBC],
   ];
   if (mode === 'rows') return rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('');
   return `<dl class="rt-where">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;

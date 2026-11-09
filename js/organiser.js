@@ -607,7 +607,7 @@ function settingsView(m, D) {
       <p class="small muted">Shown publicly as “To be confirmed” until you tick the box below.</p>
       <div class="row2"><div class="field"><label>Start location</label><input name="startLocation" type="text" value="${esc(S.event.startLocation)}" placeholder="e.g. Main gate, Melorane ERP Game Reserve"></div>
         <div class="field"><label>Finish location</label><input name="finishLocation" type="text" value="${esc(S.event.finishLocation)}"></div></div>
-      <div class="field"><label>Running route <span class="hint">A short description of each distance's route</span></label><textarea name="routeDescription">${esc(S.event.routeDescription)}</textarea></div>
+      <div class="field"><label>Running route <span class="hint">A short description of each distance's route. Press Enter to start a new line; leave an empty line between distances.</span></label><textarea name="routeDescription">${esc(S.event.routeDescription)}</textarea></div>
       ${chk('routeConfirmed', S.event.routeConfirmed, 'Start, finish and route confirmed – publish them')}
     </div>
     <div class="card" style="margin-bottom:16px"><h3>Shirts and socks</h3>
