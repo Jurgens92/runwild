@@ -3,7 +3,7 @@ import { CATEGORIES, DISTANCES, DISTANCE_SHORT, WATER_POINTS, waterPointLabel, S
 import { renderRegister } from './register.js';
 import { renderOrganiser } from './organiser.js';
 import { bindPdfButton } from './pdf.js';
-import { routeExplorer, routeFacts } from './route.js';
+import { routeExplorer, routeFacts, withBreaks } from './route.js';
 
 const app = $('#app');
 
@@ -613,7 +613,7 @@ async function info(el) {
     ['What is the launch event?', `${esc(s.launch.description)} It takes place at ${esc(s.launch.venue)} at ${esc(s.launch.time)}${s.launch.timeConfirmed ? '' : ' (provisional)'}; the date is ${s.launch.dateConfirmed && s.launch.date ? formatDate(s.launch.date) : 'still to be confirmed'}. Anyone can <a href="#/launch">register</a>.`],
     ['When and where is the race?', `${formatDay(ev.date)} at ${esc(ev.venue)}. ${startLine(ev)}. Plan to arrive early – the start is early in the morning.`],
     ['Which distances are there?', '<strong>20 km trail run</strong> or <strong>11 km run/walk</strong>. You choose one when you register. Both distances use the same pool of places for your category.'],
-    ['Where do we start and finish, and what is the route?', `${ev.routeConfirmed ? `Start: ${esc(ev.startLocation)}. Finish: ${esc(ev.finishLocation)}. ${esc(ev.routeDescription)}` : 'The start and finish locations and the running route are still being confirmed by the organisers. We will publish them here and on the route map as soon as they are final.'}`],
+    ['Where do we start and finish, and what is the route?', `${ev.routeConfirmed ? `Start: ${esc(ev.startLocation)}. Finish: ${esc(ev.finishLocation)}.<br><br>${withBreaks(ev.routeDescription)}` : 'The start and finish locations and the running route are still being confirmed by the organisers. We will publish them here and on the route map as soon as they are final.'}`],
     ['How many places are there?', `Group employees and other participants share one pool of ${s.pools.combined.limit} places. Community members have ${s.pools.community.limit} places. Melorane employees have unlimited entries and do not use either pool. When a pool is full you can join its waitlist – no payment is taken for a waitlist place.`],
     ['How much is the entry fee?', 'The entry fee depends on your category. It is shown as soon as you choose your category on the registration form, before you give any details. We will not ask for payment for a category whose fee has not been confirmed.'],
     ['What does the entry fee cover?', esc(ev.proceedsText) + ' Every entry also includes a RunWild running shirt.'],
