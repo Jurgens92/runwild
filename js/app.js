@@ -169,7 +169,7 @@ async function home(el) {
         <p>${esc(ev.proceedsText)}</p>
       </div>
       <figure style="margin:0">
-        <img class="poster" src="assets/poster.webp" alt="Run Wild Melorane poster: Save the date, 17 April 2027, 21 km trail run, 5 km run/walk." width="1179" height="1488" loading="lazy">
+        <img class="poster" src="assets/poster.webp" alt="Run Wild Melorane poster: Save the date, 17 April 2027, 20 km trail run, 11 km run/walk." width="1179" height="1488" loading="lazy">
       </figure>
     </div>
   </section>

@@ -95,8 +95,8 @@ export const scenarios = [
       await fill(be, 'other', 34, (i) => (i % 2 ? '5k' : '21k'));
       const a = await be.submitRegistration(person('other', '5k'));
       const b = await be.submitRegistration(person('group_employee', '21k'));
-      eq(a.status, 'waitlisted', '5 km after pool full');
-      eq(b.status, 'waitlisted', '21 km after pool full');
+      eq(a.status, 'waitlisted', '11 km after pool full');
+      eq(b.status, 'waitlisted', '20 km after pool full');
     },
   },
   {
